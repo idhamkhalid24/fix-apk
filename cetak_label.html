@@ -2888,26 +2888,26 @@ details.advanced-box {
     }
 
     async function confirmPrintPreview() {
-      const payload = state.pendingPrintPayload || await getPrintPayload();
-
-      const printerName = els.printModalPrinter ? els.printModalPrinter.value : els.printerName.value;
-      const copiesRaw = els.printModalCopies ? Number(els.printModalCopies.value || 1) : getPrintCopies();
-      const printCopies = Math.max(1, Math.min(100, Math.round(Number.isNaN(copiesRaw) ? 1 : copiesRaw)));
-
-      els.printerName.value = printerName;
-      els.printCopies.value = String(printCopies);
-      applyPrinterDefaults();
-
-      payload.printerName = printerName;
-      payload.printerMode = els.printerMode.value;
-      payload.feedAfterMm = getFeedAfterMm();
-      payload.printCopies = printCopies;
+      // Ekstrak teks dari elemen-elemen di editor
+      let printText = "================================\n" + 
+                      "          CETAK LABEL           \n" +
+                      "================================\n\n";
+                      
+      state.items.forEach(item => {
+        if (item.type === 'text') {
+          printText += item.text + "\n";
+        } else if (item.type === 'qrcode') {
+          printText += "[QR: " + item.text + "]\n";
+        }
+      });
+      
+      printText += "\n================================\n\n\n";
 
       closePrintPreview();
 
       if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printReceipt === 'function') {
-        (window.Android || window.parent.Android).printReceipt(JSON.stringify(payload));
-        showToast('Data dikirim ke Android');
+        (window.Android || window.parent.Android).printReceipt(printText);
+        showToast('Teks dikirim ke RPP02N');
       } else {
         const a = document.createElement('a');
         a.download = 'label-preview.png';
