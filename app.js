@@ -6029,7 +6029,16 @@ function home() {
     if (withdrawals.length === 0) return "";
     const lastWithdrawal = withdrawals[withdrawals.length - 1];
     const remainingOwner = Number(lastWithdrawal.remainingAmount || 0);
-    const txAfter = todayTx().filter(t => t.createdAtMs > (lastWithdrawal.createdAtMs || 0) && !t.deleted && (!t.paymentMethod || !t.paymentMethod.includes("qris") && !t.paymentMethod.includes("transfer")));
+    const map = new Map();
+    for (const t of (state.data.targetTx || [])) {
+      if (!deleted(t) && txDate(t) === todayKey()) map.set(t.id, t);
+    }
+    for (const t of todayTx()) {
+      if (!deleted(t)) map.set(t.id, t);
+    }
+    const globalToday = Array.from(map.values());
+
+    const txAfter = globalToday.filter(t => ms(t) > (lastWithdrawal.createdAtMs || 0) && (!t.paymentMethod || (!t.paymentMethod.includes("qris") && !t.paymentMethod.includes("transfer"))));
     const newCash = txAfter.reduce((sum, t) => sum + Number(t.amount || 0), 0);
     const estimasi = remainingOwner + newCash;
     return `<div class="card" style="margin-bottom:8px;background:#f8f9fa;border:1px solid #e9ecef;box-shadow:none">
