@@ -2277,7 +2277,7 @@ details.advanced-box {
     }
 
     function updateBridgeStatus() {
-      const hasBridge = !!((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function');
+      const hasBridge = !!((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printReceipt === 'function');
       els.bridgeDot.classList.toggle('ready', hasBridge);
       els.bridgeText.textContent = hasBridge ? 'Android' : 'Web';
     }
@@ -2905,8 +2905,8 @@ details.advanced-box {
 
       closePrintPreview();
 
-      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function') {
-        (window.Android || window.parent.Android).printLabel(JSON.stringify(payload));
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printReceipt === 'function') {
+        (window.Android || window.parent.Android).printReceipt(JSON.stringify(payload));
         showToast('Data dikirim ke Android');
       } else {
         const a = document.createElement('a');
