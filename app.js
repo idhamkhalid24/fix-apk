@@ -5123,7 +5123,7 @@ function txItem(t) {
     : "";
   const timeLabel = timeID(ms(t));
   const infoPay = payBadge ? ` · ${payBadge}` : "";
-  const shadowStyle = typeof isTxAfterLatestWithdrawal==='function'&&isTxAfterLatestWithdrawal(t) ? 'box-shadow: 0 0 10px 2px rgba(250, 204, 21, 0.4); border-color: rgba(250, 204, 21, 0.6);' : '';
+  const shadowStyle = typeof isTxAfterLatestWithdrawal==='function'&&isTxAfterLatestWithdrawal(t) ? 'border: 1px solid #ff4d4d; box-shadow: 0 0 5px rgba(255, 77, 77, 0.2);' : '';
 
   return `<div class="tx-row tx-row-card-mini" style="${shadowStyle}">
     <div class="tx-card-main">
@@ -6027,7 +6027,7 @@ function home() {
   function drawerWithdrawalCard() {
     const withdrawals = (state.data.drawerWithdrawals || []).filter(w => {
       if (w.deleted || w.status === "deleted") return false;
-      return !w.assignedUser || w.assignedUser === "all" || cleanUser(w.assignedUser) === cleanUser(state.user?.username);
+      return !w.assignedUser || w.assignedUser === "all" || key(w.assignedUser) === key(state.user?.username);
     });
     if (withdrawals.length === 0) return "";
     const lastWithdrawal = withdrawals[withdrawals.length - 1];
