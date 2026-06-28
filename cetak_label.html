@@ -2277,9 +2277,13 @@ details.advanced-box {
     }
 
     function updateBridgeStatus() {
-      const hasBridge = !!((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function');
+      let hasBridge = false;
+      try {
+        hasBridge = !!(window.Android && typeof window.Android.printReceipt === 'function') || 
+                    !!(window.parent && typeof window.parent.directPrintReceiptText === 'function');
+      } catch (e) {}
       els.bridgeDot.classList.toggle('ready', hasBridge);
-      els.bridgeText.textContent = hasBridge ? 'Android' : 'Web';
+      els.bridgeText.textContent = hasBridge ? 'Terhubung' : 'Web';
     }
 
     function setActiveTab(name) {
@@ -2905,15 +2909,31 @@ details.advanced-box {
 
       closePrintPreview();
 
-      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function') {
-        (window.Android || window.parent.Android).printLabel(JSON.stringify(payload));
-        showToast('Data dikirim ke Android');
+      // Ekstrak teks dari elemen-elemen di editor
+      let printText = "================================\n" + 
+                      "          CETAK LABEL           \n" +
+                      "================================\n\n";
+                      
+      state.items.forEach(item => {
+        if (item.type === 'text') {
+          printText += item.text + "\n";
+        } else if (item.type === 'qrcode') {
+          printText += "[QR: " + item.text + "]\n";
+        }
+      });
+      
+      printText += "\n================================\n\n\n";
+
+      closePrintPreview();
+
+      if (window.parent && typeof window.parent.directPrintReceiptText === 'function') {
+        window.parent.directPrintReceiptText(printText, "Cetak Label");
+        showToast('Teks dikirim ke aplikasi staf');
+      } else if (window.Android && typeof window.Android.printReceipt === 'function') {
+        window.Android.printReceipt(printText);
+        showToast('Teks dikirim ke Android (Standalone)');
       } else {
-        const a = document.createElement('a');
-        a.download = 'label-preview.png';
-        a.href = payload.imageBase64;
-        a.click();
-        showToast('Mode web: fallback simpan PNG');
+        alert("Gagal mencetak: Jembatan aplikasi tidak ditemukan.");
       }
     }
 
