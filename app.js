@@ -5099,7 +5099,22 @@ const TX_HISTORY_ICONS = {
 function txHistoryIcon(name) {
   return TX_HISTORY_ICONS[name] || "";
 }
-function isTxAfterLatestWithdrawal(t){if(!state.data.drawerWithdrawals||!state.data.drawerWithdrawals.length)return false;const dk=String(t.dateKey||"").slice(0,10);if(!dk)return false;const dws=state.data.drawerWithdrawals.filter(w=>!w.deleted&&String(w.dateKey||"").slice(0,10)===dk);if(!dws.length)return false;let latestDw=dws[0];for(const w of dws){if((w.createdAtMs||0)>(latestDw.createdAtMs||0))latestDw=w}return ms(t)>Number(latestDw.createdAtMs||0)}
+function isTxAfterLatestWithdrawal(t) {
+  if (!state.data.drawerWithdrawals || !state.data.drawerWithdrawals.length) return false;
+  const dkTx = String(txDate(t) || "").slice(0, 10);
+  if (!dkTx) return false;
+  const dws = state.data.drawerWithdrawals.filter(w => {
+    if (w.deleted || w.status === "deleted") return false;
+    if (String(w.dateKey || "").slice(0, 10) !== dkTx) return false;
+    return !w.assignedUser || w.assignedUser === "all" || key(w.assignedUser) === key(state.user?.username);
+  });
+  if (!dws.length) return false;
+  let latestDw = dws[0];
+  for (const w of dws) {
+    if ((w.createdAtMs || 0) > (latestDw.createdAtMs || 0)) latestDw = w;
+  }
+  return ms(t) > Number(latestDw.createdAtMs || 0);
+}
 function txItem(t) {
   const pending = t.pending === true;
   const canDelete = txDate(t) === todayKey() && !pending;
@@ -5123,7 +5138,7 @@ function txItem(t) {
     : "";
   const timeLabel = timeID(ms(t));
   const infoPay = payBadge ? ` · ${payBadge}` : "";
-  const shadowStyle = typeof isTxAfterLatestWithdrawal==='function'&&isTxAfterLatestWithdrawal(t) ? 'border: 1px solid #ff4d4d; box-shadow: 0 0 5px rgba(255, 77, 77, 0.2);' : '';
+  const shadowStyle = typeof isTxAfterLatestWithdrawal==='function'&&isTxAfterLatestWithdrawal(t) ? 'border: 1px solid #ff4d4d !important; box-shadow: 0 0 5px rgba(255, 77, 77, 0.2) !important;' : '';
 
   return `<div class="tx-row tx-row-card-mini" style="${shadowStyle}">
     <div class="tx-card-main">
