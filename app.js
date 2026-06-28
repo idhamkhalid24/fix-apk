@@ -5099,6 +5099,7 @@ const TX_HISTORY_ICONS = {
 function txHistoryIcon(name) {
   return TX_HISTORY_ICONS[name] || "";
 }
+function isTxAfterLatestWithdrawal(t){if(!state.data.drawerWithdrawals||!state.data.drawerWithdrawals.length)return false;const dk=String(t.dateKey||"").slice(0,10);if(!dk)return false;const dws=state.data.drawerWithdrawals.filter(w=>!w.deleted&&String(w.dateKey||"").slice(0,10)===dk);if(!dws.length)return false;let latestDw=dws[0];for(const w of dws){if((w.createdAtMs||0)>(latestDw.createdAtMs||0))latestDw=w}return Number(t.createdAtMs||0)>Number(latestDw.createdAtMs||0)}
 function txItem(t) {
   const pending = t.pending === true;
   const canDelete = txDate(t) === todayKey() && !pending;
@@ -5121,7 +5122,8 @@ function txItem(t) {
     ? `<span class="tx-pay-badge ${method === "cash" ? "cash" : "qris"}">${esc(label)}</span>`
     : "";
   const timeLabel = timeID(ms(t));
-  const infoPay = payBadge ? ` · ${payBadge}` : "";
+  const marker = typeof isTxAfterLatestWithdrawal==='function'&&isTxAfterLatestWithdrawal(t) ? `<span style="font-size:10px;background:#eef2ff;color:#4338ca;padding:2px 6px;border-radius:4px;margin-left:6px;font-weight:bold;display:inline-block"><i class="fas fa-clock"></i> Baru (Setelah Laci)</span>` : '';
+  const infoPay = (payBadge ? ` · ${payBadge}` : "") + marker;
 
   return `<div class="tx-row tx-row-card-mini">
     <div class="tx-card-main">
