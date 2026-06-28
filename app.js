@@ -487,6 +487,7 @@ const state = {
     staffDailyNote: { note: DEFAULT_STAFF_DAILY_NOTE, enabled: true },
     receiptSettings: { ...DEFAULT_RECEIPT_TEXT_SETTINGS },
     cashDrawer: null,
+    drawerWithdrawals: [],
   },
 };
 let dailyTargetApplyTimer = 0;
@@ -2889,6 +2890,24 @@ function normalizeCashDrawerRow(r = {}) {
     createdAt: r.created_at || r.createdAt || "",
   };
 }
+async function loadDrawerWithdrawals(dateKey = todayKey()) {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, "drawer_withdrawals"),
+        where("dateKey", "==", dateKey)
+      )
+    );
+    state.data.drawerWithdrawals = snap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })).sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+  } catch (e) {
+    console.warn("Gagal memuat tarikan laci", e);
+    state.data.drawerWithdrawals = [];
+  }
+  return state.data.drawerWithdrawals;
+}
 async function loadCashDrawerStatus(dateKey = todayKey()) {
   try {
     const { data, error } = await cashDrawerClient
@@ -3593,6 +3612,7 @@ async function loadStaffData(opts = {}) {
     monthStart = monthStartKey(m),
     monthEnd = monthEndKey(m);
   const cashDrawerLoad = loadCashDrawerStatus(d);
+  const drawerWithdrawalLoad = loadDrawerWithdrawals(d);
   if (!silent) showLoad(true);
   try {
     // Load awal fokus ke bulan berjalan. Ini menjaga kartu hari ini, bonus bulanan,
@@ -3933,6 +3953,7 @@ async function loadStaffData(opts = {}) {
     applyPendingToState();
   }
   await cashDrawerLoad.catch(() => null);
+  await drawerWithdrawalLoad.catch(() => null);
   await loadDailyTargetData({ apply: true });
   if (!silent) showLoad(false);
   render();
@@ -6001,15 +6022,41 @@ function home() {
     sisaBonus = remainingBonus();
   page.innerHTML = `${top("Mode Staff", state.user?.name || "Karyawan Staff")}${trialModeCard()}${targetReachedNoticeCard()}${manualBonusNoticeCard()}${bonusWithdrawalNoticeCard()}${cashDrawerStatusCard()}${averageAttendanceCard()}${closingNotice()}<div class="hero"><div class="kicker">Pendapatan Hari Ini</div><div class="big">Rp ${rp(todayTotal())}</div><div class="sub hero-meta-line">${dateID(todayKey()).slice(0, 5)} · ${tx.length} trx</div>${syncHeroLine()}</div>${dailyTargetCard()}${emptyStockCard}<div class="grid2 staff-stat-grid" style="margin-top:8px"><div class="stat att-status ${mainClass}"><div class="stat-label">${mainLabel}</div><div class="stat-val">${mainValue}</div><div class="stat-foot">${mainFoot}</div></div>${prayerStatCard()}<div class="stat"><div class="stat-label">Transaksi</div><div class="stat-val">${tx.length}</div><div class="stat-foot">hari ini</div></div><div class="stat"><div class="stat-label">Total Masuk Kerja</div><div class="stat-val">${monthAttendDays()} <span style="font-size:13px;font-weight:850;color:var(--muted);letter-spacing:0">Hari</span></div><div class="stat-foot">${monthID(monthKey())}</div></div></div><div class="card bonus-plus-card" style="margin-top:8px"><div class="bonus-plus-head"><div class="label">Bonus Bulan Ini</div><button class="refresh-icon-btn" onclick="refresh()" aria-label="Refresh bonus"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.2 6.5"/><path d="M3 12A9 9 0 0 1 18.2 5.5"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg></button></div><div class="big" style="color:var(--blue)">Rp ${rp(sisaBonus)}</div><div class="bonus-note">Bonus terhitung ${rp(earnedBonus)} · sudah diambil ${rp(takenBonus)}</div>${bonusWithdrawalDetailList()}${todayClosingBonusInline()}</div>${staffDailyNoteCard()}<div class="bonus-refresh-note"><span class="note-alert-icon">!</span><span><b>Perhatian:</b> klik ikon refresh saat aplikasi error atau saat Transaksi gagal di lakukan.<br><span style="display:block;margin-top:2px">Copyright © 2026 Program by Alfajri – Rocky Hijab.</span></span></div>${headerIconGuide()}`;
 }
+  function drawerWithdrawalCard() {
+    const withdrawals = state.data.drawerWithdrawals || [];
+    if (withdrawals.length === 0) return "";
+    const lastWithdrawal = withdrawals[withdrawals.length - 1];
+    const remainingOwner = Number(lastWithdrawal.remainingAmount || 0);
+    const txAfter = todayTx().filter(t => t.createdAtMs > (lastWithdrawal.createdAtMs || 0) && !t.deleted && (!t.paymentMethod || !t.paymentMethod.includes("qris") && !t.paymentMethod.includes("transfer")));
+    const newCash = txAfter.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const estimasi = remainingOwner + newCash;
+    return `<div class="card" style="margin-bottom:8px;background:#f8f9fa;border:1px solid #e9ecef;box-shadow:none">
+      <div style="font-size:12px;font-weight:800;color:#495057;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fas fa-money-bill-wave" style="color:#0ca678"></i> Estimasi Uang Laci</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px">
+        <span style="color:#6c757d">Sisa Uang Laci (Owner):</span>
+        <span style="font-weight:600;font-family:monospace">Rp ${rp(remainingOwner)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:4px">
+        <span style="color:#6c757d">Transaksi Cash Baru:</span>
+        <span style="font-weight:600;font-family:monospace">+ Rp ${rp(newCash)}</span>
+      </div>
+      <div style="border-top:1px dashed #dee2e6;margin:8px 0 6px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+        <span style="font-weight:800;color:#343a40">Estimasi Laci:</span>
+        <span style="font-weight:850;color:#0ca678;font-family:monospace">Rp ${rp(estimasi)}</span>
+      </div>
+    </div>`;
+  }
   function history() {
     const items = sortDesc(todayTx());
+    const drawerCard = drawerWithdrawalCard();
     const printAllCard = items.length
       ? `<div class="card" style="margin-bottom:8px"><button class="btn primary block tx-print-all-btn" onclick="printTodayTransactions()">${txHistoryIcon("print")} Cetak Semua Transaksi Hari Ini</button><div class="hint" style="margin-top:6px">Cetak ${items.length} transaksi hari ini dalam 1 struk.</div></div>`
       : "";
     const body = items.length
       ? `<div class="tx-table"><div class="tx-head"><span>Nama / Jam</span><span>Nominal</span><span style="text-align:right">Aksi</span></div><div class="tx-list">${items.map(txItem).join("")}</div></div>`
       : '<div class="empty">Belum ada transaksi hari ini.</div>';
-    page.innerHTML = `${top("Riwayat Hari Ini", `${items.length} transaksi · Rp ${rp(todayTotal())}`)}${syncBar()}${printAllCard}${body}`;
+    page.innerHTML = `${top("Riwayat Hari Ini", `${items.length} transaksi · Rp ${rp(todayTotal())}`)}${syncBar()}${drawerCard}${printAllCard}${body}`;
   }
 
   const __baseHomeWithUnlockCard = home;
