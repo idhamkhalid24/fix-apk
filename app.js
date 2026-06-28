@@ -2957,6 +2957,7 @@ function headerIconGuide() {
 }
 function headerTopIcon(name) {
   const icons = {
+    printer: '<svg class="top-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
     back: '<svg class="top-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>',
     member:
       '<svg class="top-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4"/><path d="M7 14h7"/><path d="M16.5 10.5h.01"/></svg>',
@@ -2995,7 +2996,7 @@ top = function (title, sub) {
   const back = canAppBack()
     ? `<button class="top-back-btn" onclick="appBack()" aria-label="Kembali" title="Kembali">${headerTopIcon("back")}</button>`
     : "";
-  return `<div class="top">${back}<div class="brand"><div class="title">${esc(title)}</div><div class="sub">${esc(sub || state.user?.name || "Staff")}</div></div><div class="row top-actions">${headerTopLink("Member", "member", MEMBER_URL, "member top-member")}${headerTxStatus()}${headerTopAction("Refresh", "refresh", 'onclick="refresh()"', "top-refresh")}${headerTopAction(neo ? "Tema Majoo" : "Tema Neo", neo ? "sun" : "neo", 'onclick="toggleTheme()"', "top-theme")}${headerTopAction("Keluar", "logout", 'onclick="logout()"', "danger top-logout")}</div></div>`;
+  return `<div class="top">${back}<div class="brand"><div class="title">${esc(title)}</div><div class="sub">${esc(sub || state.user?.name || "Staff")}</div></div><div class="row top-actions">${headerTopAction("Cetak Label", "printer", 'onclick="go(\'label\')"', "top-printer")}${headerTopLink("Member", "member", MEMBER_URL, "member top-member")}${headerTxStatus()}${headerTopAction("Refresh", "refresh", 'onclick="refresh()"', "top-refresh")}${headerTopAction(neo ? "Tema Majoo" : "Tema Neo", neo ? "sun" : "neo", 'onclick="toggleTheme()"', "top-theme")}${headerTopAction("Keluar", "logout", 'onclick="logout()"', "danger top-logout")}</div></div>`;
 };
 headerGuideItems = function () {
   const neo = isNeoTheme();
@@ -3111,6 +3112,7 @@ function renderNow() {
   if (!state.user) return renderLogin();
   syncAndroidStaffSession();
   nav();
+  if (state.page === "label") return renderLabelEditor();
   if (state.page === "history") return history();
   if (state.page === "unlock") return renderUnlockPage();
   return home();
@@ -7286,7 +7288,7 @@ function home() {
   }
   function go(p, opts = {}) {
     p = p === "leave" ? "unlock" : p;
-    p = p === "history" || p === "unlock" ? p : "home";
+    p = p === "history" || p === "unlock" || p === "label" ? p : "home";
     if (state.page === p) {
       render();
       return;
@@ -7704,3 +7706,8 @@ function home() {
   // Refresh manual dan realtime tetap aktif.
   // installPullToReload();
   boot();
+
+function renderLabelEditor() {
+  page.innerHTML = `${top("Cetak Label", "KASSEN642BT_904D 40x30")}<iframe src="./cetak_label.html?auto=1" style="width:100%;height:calc(100vh - 54px);border:none;background:#f5f5f5;"></iframe>`;
+}
+
