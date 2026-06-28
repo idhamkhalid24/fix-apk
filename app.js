@@ -7708,6 +7708,6 @@ function home() {
   boot();
 
 function renderLabelEditor() {
-  page.innerHTML = `${top("Cetak Label", "KASSEN642BT_904D 40x30")}<iframe src="./cetak_label.html?auto=1" style="width:100%;height:calc(100vh - 54px);border:none;background:#f5f5f5;"></iframe>`;
+  page.innerHTML = `${top("Cetak Label", "KASSEN642BT_904D 40x30")}<iframe src="./cetak_label.html?auto=1&v=${Date.now()}" style="width:100%;height:calc(100vh - 54px);border:none;background:#f5f5f5;"></iframe>`;
 }
 

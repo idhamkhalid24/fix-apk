@@ -140,7 +140,7 @@
       display: none;
       grid-template-rows: auto minmax(0, 1fr) auto;
       gap: 8px;
-      padding: calc(8px + env(safe-area-inset-top)) 8px calc(8px + env(safe-area-inset-bottom));
+      padding: calc(8px + env(safe-area-inset-top)) 8px calc(76px + env(safe-area-inset-bottom));
     }
     .fullscreen-overlay.active {
       display: grid;
@@ -2277,7 +2277,7 @@ details.advanced-box {
     }
 
     function updateBridgeStatus() {
-      const hasBridge = !!(window.Android && typeof window.Android.printLabel === 'function');
+      const hasBridge = !!((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function');
       els.bridgeDot.classList.toggle('ready', hasBridge);
       els.bridgeText.textContent = hasBridge ? 'Android' : 'Web';
     }
@@ -2641,8 +2641,8 @@ details.advanced-box {
       const fileName = `${safeName}.label.json`;
 
       // Di Android app, simpan ke folder internal app lewat Kotlin.
-      if (window.Android && typeof window.Android.saveLabelJson === 'function') {
-        window.Android.saveLabelJson(fileName, jsonText);
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).saveLabelJson === 'function') {
+        (window.Android || window.parent.Android).saveLabelJson(fileName, jsonText);
         return;
       }
 
@@ -2662,8 +2662,8 @@ details.advanced-box {
 
     function openLabelPicker() {
       // Di Android app, buka daftar label internal yang sudah disimpan.
-      if (window.Android && typeof window.Android.openSavedLabelPicker === 'function') {
-        window.Android.openSavedLabelPicker();
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).openSavedLabelPicker === 'function') {
+        (window.Android || window.parent.Android).openSavedLabelPicker();
         return;
       }
 
@@ -2789,8 +2789,8 @@ details.advanced-box {
     function uploadFileToPreview() {
       const settings = getUploadPrintSettings();
 
-      if (window.Android && typeof window.Android.pickFileForPreview === 'function') {
-        window.Android.pickFileForPreview(JSON.stringify(settings));
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).pickFileForPreview === 'function') {
+        (window.Android || window.parent.Android).pickFileForPreview(JSON.stringify(settings));
         showToast('Pilih file dari HP');
         return;
       }
@@ -2843,8 +2843,8 @@ details.advanced-box {
         printerMode: 'label_gap'
       };
 
-      if (window.Android && typeof window.Android.calibrateKassen === 'function') {
-        window.Android.calibrateKassen(JSON.stringify(settings));
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).calibrateKassen === 'function') {
+        (window.Android || window.parent.Android).calibrateKassen(JSON.stringify(settings));
         showToast('Kalibrasi KASSEN dikirim');
         return;
       }
@@ -2905,8 +2905,8 @@ details.advanced-box {
 
       closePrintPreview();
 
-      if (window.Android && typeof window.Android.printLabel === 'function') {
-        window.Android.printLabel(JSON.stringify(payload));
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function') {
+        (window.Android || window.parent.Android).printLabel(JSON.stringify(payload));
         showToast('Data dikirim ke Android');
       } else {
         const a = document.createElement('a');
