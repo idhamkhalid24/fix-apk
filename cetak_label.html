@@ -140,7 +140,7 @@
       display: none;
       grid-template-rows: auto minmax(0, 1fr) auto;
       gap: 8px;
-      padding: calc(8px + env(safe-area-inset-top)) 8px calc(76px + env(safe-area-inset-bottom));
+      padding: calc(8px + env(safe-area-inset-top)) 8px calc(8px + env(safe-area-inset-bottom));
     }
     .fullscreen-overlay.active {
       display: grid;
@@ -2277,7 +2277,7 @@ details.advanced-box {
     }
 
     function updateBridgeStatus() {
-      const hasBridge = !!((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printReceipt === 'function');
+      const hasBridge = !!((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function');
       els.bridgeDot.classList.toggle('ready', hasBridge);
       els.bridgeText.textContent = hasBridge ? 'Android' : 'Web';
     }
@@ -2888,26 +2888,26 @@ details.advanced-box {
     }
 
     async function confirmPrintPreview() {
-      // Ekstrak teks dari elemen-elemen di editor
-      let printText = "================================\n" + 
-                      "          CETAK LABEL           \n" +
-                      "================================\n\n";
-                      
-      state.items.forEach(item => {
-        if (item.type === 'text') {
-          printText += item.text + "\n";
-        } else if (item.type === 'qrcode') {
-          printText += "[QR: " + item.text + "]\n";
-        }
-      });
-      
-      printText += "\n================================\n\n\n";
+      const payload = state.pendingPrintPayload || await getPrintPayload();
+
+      const printerName = els.printModalPrinter ? els.printModalPrinter.value : els.printerName.value;
+      const copiesRaw = els.printModalCopies ? Number(els.printModalCopies.value || 1) : getPrintCopies();
+      const printCopies = Math.max(1, Math.min(100, Math.round(Number.isNaN(copiesRaw) ? 1 : copiesRaw)));
+
+      els.printerName.value = printerName;
+      els.printCopies.value = String(printCopies);
+      applyPrinterDefaults();
+
+      payload.printerName = printerName;
+      payload.printerMode = els.printerMode.value;
+      payload.feedAfterMm = getFeedAfterMm();
+      payload.printCopies = printCopies;
 
       closePrintPreview();
 
-      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printReceipt === 'function') {
-        (window.Android || window.parent.Android).printReceipt(printText);
-        showToast('Teks dikirim ke RPP02N');
+      if ((window.Android || window.parent.Android) && typeof (window.Android || window.parent.Android).printLabel === 'function') {
+        (window.Android || window.parent.Android).printLabel(JSON.stringify(payload));
+        showToast('Data dikirim ke Android');
       } else {
         const a = document.createElement('a');
         a.download = 'label-preview.png';
@@ -3751,32 +3751,6 @@ details.advanced-box {
 
     updateBridgeStatus();
     setActiveTab('data');
-    
-    // Auto start in fullscreen editor for integration
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('auto')) {
-      els.printerName.value = 'KASSEN642BT_904D';
-      els.paperSize.value = '40x30';
-      applyPrinterDefaults();
-      applyPaperDefaults();
-      
-      // Override 'Keluar' button to navigate back in parent iframe
-      const exitBtns = document.querySelectorAll('button[onclick="exitFullscreenEditor()"]');
-      exitBtns.forEach(btn => {
-        btn.onclick = function() {
-          if (window.parent && window.parent.go) {
-            window.parent.go('home');
-          } else {
-            exitFullscreenEditor();
-          }
-        };
-      });
-      
-      setTimeout(() => {
-        enterFullscreenEditor();
-      }, 100);
-    }
-    
     updatePreview();
   </script>
 </body>
