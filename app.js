@@ -3550,6 +3550,21 @@ function startStaffRealtime() {
 
   staffRealtimeUnsubs.push(
     onSnapshot(
+      doc(db, "ops_access", `ops_${dateKey()}_${u}`),
+      (snap) => {
+        const wasGranted = !!state.data.opsAccess;
+        state.data.opsAccess = snap && snap.exists() ? snap.data() : null;
+        if (state.data.opsAccess && !wasGranted && window.loadAdminTransactions) {
+          window.loadAdminTransactions();
+        }
+        debouncedRender();
+      },
+      (err) => handleRealtimeError("Ops Access", err)
+    )
+  );
+
+  staffRealtimeUnsubs.push(
+    onSnapshot(
       doc(db, "users", u),
       (snap) => {
         if (!snap.exists()) {
@@ -6018,6 +6033,148 @@ function openPrayerAyat(autoPlay = false) {
   if (autoPlay) playPrayerAyat();
 }
 
+window.loadAdminTransactions = async () => {
+  if (!state.data.opsAccess) return;
+  try {
+    const { data } = await cashDrawerClient.from("transactions")
+      .select("id,amount,type,description")
+      .eq("owner_id", KAS_PRIBADI_OWNER_ID)
+      .eq("date", todayKey());
+    state.data.adminTransactions = data || [];
+    render();
+  } catch(e) {}
+};
+
+window.saveOpsExpense = async () => {
+  const desc = $("opsDescInput")?.value?.trim();
+  const amount = Number(onlyDigits($("opsAmountInput")?.value || "0"));
+  if (!desc) return toast("Deskripsi harus diisi", true);
+  if (!amount || amount <= 0) return toast("Nominal tidak valid", true);
+  
+  setBusy(true);
+  try {
+    const payload = {
+      id: Date.now(),
+      owner_id: KAS_PRIBADI_OWNER_ID,
+      date: todayKey(),
+      description: "[OPS] " + desc,
+      amount: amount,
+      type: "expense",
+      category_name: "Operasional Toko"
+    };
+    const { error } = await cashDrawerClient.from("transactions").insert([payload]);
+    if (error) throw error;
+    closeModal();
+    toast("Operasional tersimpan");
+    loadAdminTransactions();
+  } catch(e) {
+    toast(e.message || "Gagal menyimpan", true);
+  } finally {
+    setBusy(false);
+  }
+};
+
+window.saveQrisExpense = async () => {
+  const amount = Number(onlyDigits($("qrisAmountInput")?.value || "0"));
+  if (!amount || amount <= 0) return toast("Nominal tidak valid", true);
+  
+  setBusy(true);
+  try {
+    const payload = {
+      id: Date.now(),
+      owner_id: KAS_PRIBADI_OWNER_ID,
+      date: todayKey(),
+      description: "[CASHOUT:qris] Tarik Tunai QRIS",
+      amount: amount,
+      type: "expense",
+      category_name: "Tarik Tunai"
+    };
+    const { error } = await cashDrawerClient.from("transactions").insert([payload]);
+    if (error) throw error;
+    closeModal();
+    toast("QRIS tersimpan");
+    loadAdminTransactions();
+  } catch(e) {
+    toast(e.message || "Gagal menyimpan", true);
+  } finally {
+    setBusy(false);
+  }
+};
+
+window.openOpsModal = () => {
+  const body = `
+    <div class="field">
+      <div class="label">Deskripsi Operasional</div>
+      <input id="opsDescInput" class="input" type="text" placeholder="Misal: Beli ATK">
+    </div>
+    <div class="field">
+      <div class="label">Nominal Rp</div>
+      <input id="opsAmountInput" class="input" type="tel" inputmode="numeric" placeholder="0" oninput="formatRupiahInput(this)" style="font-size:25px;font-weight:950">
+    </div>
+  `;
+  const actions = `
+    <div style="display:flex;gap:8px;width:100%">
+      <button type="button" class="btn danger full" onclick="closeModal()">Batal</button>
+      <button type="button" class="btn primary full" onclick="saveOpsExpense()">Simpan</button>
+    </div>
+  `;
+  modal("Operasional Toko", body, actions, "ops-modal");
+};
+
+window.openQrisModal = () => {
+  const body = `
+    <div class="field">
+      <div class="label">Nominal QRIS Rp</div>
+      <input id="qrisAmountInput" class="input" type="tel" inputmode="numeric" placeholder="0" oninput="formatRupiahInput(this)" style="font-size:25px;font-weight:950">
+    </div>
+  `;
+  const actions = `
+    <div style="display:flex;gap:8px;width:100%">
+      <button type="button" class="btn danger full" onclick="closeModal()">Batal</button>
+      <button type="button" class="btn primary full" onclick="saveQrisExpense()">Simpan</button>
+    </div>
+  `;
+  modal("Tarik Tunai QRIS", body, actions, "qris-modal");
+};
+
+function opsAccessCard() {
+  if (!state.data.opsAccess) return "";
+  const tx = state.data.adminTransactions || [];
+  let opsTotal = 0;
+  let qrisTotal = 0;
+  for (const t of tx) {
+    if (t.type === 'expense') {
+      const desc = String(t.description || "");
+      if (desc.startsWith("[OPS]")) opsTotal += Number(t.amount || 0);
+      else if (desc.startsWith("[CASHOUT:qris]")) qrisTotal += Number(t.amount || 0);
+    }
+  }
+  
+  return `
+    <div class="card mb" style="border: 2px solid #ef4444; overflow: hidden; margin-top:8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+      <div style="background: #ef4444; color: white; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-weight: 800; font-size: 14px;">Cash Fisik Hari Ini</div>
+        <div style="font-size: 10px; font-weight: 800; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">HARI INI</div>
+      </div>
+      <div style="padding: 16px;">
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <button onclick="openOpsModal()" class="btn" style="flex: 1; background: #fff3e0; color: #e8820c; border: 1px solid #111; font-weight: 800;">+ Ops</button>
+          <button onclick="openQrisModal()" class="btn" style="flex: 1; background: #dbeafe; color: #1d4ed8; border: 1px solid #111; font-weight: 800;">+ QRIS</button>
+        </div>
+        <div style="font-size: 10px; color: var(--muted); margin-bottom: 12px; text-align: center;">Operasional Toko - QRIS</div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+          <span style="color: var(--muted);">Operasional Toko</span>
+          <b style="color: #e8820c;">Rp ${rp(opsTotal)}</b>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px;">
+          <span style="color: var(--muted);">QRIS</span>
+          <b style="color: #2563eb;">Rp ${rp(qrisTotal)}</b>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function home() {
   const tx = todayTx(),
     a = todayAtt(),
@@ -6028,7 +6185,7 @@ function home() {
       manualToday = manualBonusToday(),
       todayBonus = todayTxBonus + manualToday;
     const manualCard = "";
-    page.innerHTML = `${top("Mode Harian", state.user?.name || "Karyawan Harian")}${trialModeCard()}${manualBonusNoticeCard()}${bonusWithdrawalNoticeCard()}${cashDrawerStatusCard()}<div class="hero daily-income-hero" style="position:relative"><div class="kicker">Pendapatan Hari Ini</div><div class="big">Rp ${rp(todayTotal())}</div><div class="sub hero-meta-line">${dateID(todayKey()).slice(0, 5)} · ${tx.length} trx</div>${syncHeroLine()}</div>${emptyStockCard}<div class="grid2" style="margin-top:8px"><div class="stat"><div class="stat-label">Transaksi Hari Ini</div><div class="stat-val">${tx.length}</div><div class="stat-foot">hari ini</div></div><div class="stat"><div class="stat-label">Gaji Hari Ini</div><div class="stat-val">Rp ${rp(todayBonus)}</div><div class="stat-foot">hari ini</div></div></div>${prayerStatCard("daily")}${manualCard}${staffDailyNoteCard()}<div class="bonus-refresh-note"><span class="note-alert-icon">!</span><span><b>Perhatian:</b> klik ikon refresh saat aplikasi error atau saat Transaksi gagal di lakukan.<br><span style="display:block;margin-top:2px">Copyright © 2026 Program by Alfajri – Rocky Hijab.</span></span></div>${headerIconGuide()}`;
+    page.innerHTML = `${top("Mode Harian", state.user?.name || "Karyawan Harian")}${trialModeCard()}${manualBonusNoticeCard()}${bonusWithdrawalNoticeCard()}${cashDrawerStatusCard()}${opsAccessCard()}<div class="hero daily-income-hero" style="position:relative"><div class="kicker">Pendapatan Hari Ini</div><div class="big">Rp ${rp(todayTotal())}</div><div class="sub hero-meta-line">${dateID(todayKey()).slice(0, 5)} · ${tx.length} trx</div>${syncHeroLine()}</div>${emptyStockCard}<div class="grid2" style="margin-top:8px"><div class="stat"><div class="stat-label">Transaksi Hari Ini</div><div class="stat-val">${tx.length}</div><div class="stat-foot">hari ini</div></div><div class="stat"><div class="stat-label">Gaji Hari Ini</div><div class="stat-val">Rp ${rp(todayBonus)}</div><div class="stat-foot">hari ini</div></div></div>${prayerStatCard("daily")}${manualCard}${staffDailyNoteCard()}<div class="bonus-refresh-note"><span class="note-alert-icon">!</span><span><b>Perhatian:</b> klik ikon refresh saat aplikasi error atau saat Transaksi gagal di lakukan.<br><span style="display:block;margin-top:2px">Copyright © 2026 Program by Alfajri – Rocky Hijab.</span></span></div>${headerIconGuide()}`;
     return;
   }
   const mainLabel = c ? "Closing Hari Ini" : "Absen Hari Ini";
@@ -6038,7 +6195,7 @@ function home() {
   const earnedBonus = totalBonus(),
     takenBonus = bonusWithdrawn(),
     sisaBonus = remainingBonus();
-  page.innerHTML = `${top("Mode Staff", state.user?.name || "Karyawan Staff")}${trialModeCard()}${targetReachedNoticeCard()}${manualBonusNoticeCard()}${bonusWithdrawalNoticeCard()}${cashDrawerStatusCard()}${averageAttendanceCard()}${closingNotice()}<div class="hero" style="position:relative"><div class="kicker">Pendapatan Hari Ini</div><div class="big">Rp ${rp(todayTotal())}</div><div class="sub hero-meta-line">${dateID(todayKey()).slice(0, 5)} · ${tx.length} trx</div>${syncHeroLine()}</div>${dailyTargetCard()}${emptyStockCard}<div class="grid2 staff-stat-grid" style="margin-top:8px"><div class="stat att-status ${mainClass}"><div class="stat-label">${mainLabel}</div><div class="stat-val">${mainValue}</div><div class="stat-foot">${mainFoot}</div></div>${prayerStatCard()}<div class="stat"><div class="stat-label">Transaksi</div><div class="stat-val">${tx.length}</div><div class="stat-foot">hari ini</div></div><div class="stat"><div class="stat-label">Total Masuk Kerja</div><div class="stat-val">${monthAttendDays()} <span style="font-size:13px;font-weight:850;color:var(--muted);letter-spacing:0">Hari</span></div><div class="stat-foot">${monthID(monthKey())}</div></div></div><div class="card bonus-plus-card" style="margin-top:8px"><div class="bonus-plus-head"><div class="label">Bonus Bulan Ini</div><button class="refresh-icon-btn" onclick="refresh()" aria-label="Refresh bonus"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.2 6.5"/><path d="M3 12A9 9 0 0 1 18.2 5.5"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg></button></div><div class="big" style="color:var(--blue)">Rp ${rp(sisaBonus)}</div><div class="bonus-note">Bonus terhitung ${rp(earnedBonus)} · sudah diambil ${rp(takenBonus)}</div>${bonusWithdrawalDetailList()}${todayClosingBonusInline()}</div>${staffDailyNoteCard()}<div class="bonus-refresh-note"><span class="note-alert-icon">!</span><span><b>Perhatian:</b> klik ikon refresh saat aplikasi error atau saat Transaksi gagal di lakukan.<br><span style="display:block;margin-top:2px">Copyright © 2026 Program by Alfajri – Rocky Hijab.</span></span></div>${headerIconGuide()}`;
+  page.innerHTML = `${top("Mode Staff", state.user?.name || "Karyawan Staff")}${trialModeCard()}${targetReachedNoticeCard()}${manualBonusNoticeCard()}${bonusWithdrawalNoticeCard()}${cashDrawerStatusCard()}${opsAccessCard()}${averageAttendanceCard()}${closingNotice()}<div class="hero" style="position:relative"><div class="kicker">Pendapatan Hari Ini</div><div class="big">Rp ${rp(todayTotal())}</div><div class="sub hero-meta-line">${dateID(todayKey()).slice(0, 5)} · ${tx.length} trx</div>${syncHeroLine()}</div>${dailyTargetCard()}${emptyStockCard}<div class="grid2 staff-stat-grid" style="margin-top:8px"><div class="stat att-status ${mainClass}"><div class="stat-label">${mainLabel}</div><div class="stat-val">${mainValue}</div><div class="stat-foot">${mainFoot}</div></div>${prayerStatCard()}<div class="stat"><div class="stat-label">Transaksi</div><div class="stat-val">${tx.length}</div><div class="stat-foot">hari ini</div></div><div class="stat"><div class="stat-label">Total Masuk Kerja</div><div class="stat-val">${monthAttendDays()} <span style="font-size:13px;font-weight:850;color:var(--muted);letter-spacing:0">Hari</span></div><div class="stat-foot">${monthID(monthKey())}</div></div></div><div class="card bonus-plus-card" style="margin-top:8px"><div class="bonus-plus-head"><div class="label">Bonus Bulan Ini</div><button class="refresh-icon-btn" onclick="refresh()" aria-label="Refresh bonus"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.2 6.5"/><path d="M3 12A9 9 0 0 1 18.2 5.5"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg></button></div><div class="big" style="color:var(--blue)">Rp ${rp(sisaBonus)}</div><div class="bonus-note">Bonus terhitung ${rp(earnedBonus)} · sudah diambil ${rp(takenBonus)}</div>${bonusWithdrawalDetailList()}${todayClosingBonusInline()}</div>${staffDailyNoteCard()}<div class="bonus-refresh-note"><span class="note-alert-icon">!</span><span><b>Perhatian:</b> klik ikon refresh saat aplikasi error atau saat Transaksi gagal di lakukan.<br><span style="display:block;margin-top:2px">Copyright © 2026 Program by Alfajri – Rocky Hijab.</span></span></div>${headerIconGuide()}`;
 }
   function drawerWithdrawalCard() {
     const withdrawals = (state.data.drawerWithdrawals || []).filter(w => {
