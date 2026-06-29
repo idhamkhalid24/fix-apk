@@ -6035,7 +6035,7 @@ window.loadAdminTransactions = async () => {
   if (!state.data.opsAccess) return;
   try {
     const { data } = await cashDrawerClient.from("transactions")
-      .select("id,amount,type,description")
+      .select("id,amount,type,description,date")
       .eq("owner_id", KAS_PRIBADI_OWNER_ID)
       .eq("date", todayKey());
     state.data.adminTransactions = data || [];
@@ -6101,19 +6101,38 @@ window.renderCashOutTodayList = () => {
 };
 
 window.deleteCashOut = async (id) => {
-  if (!confirm("Hapus pengeluaran ini?")) return;
+  const tx = state.data.adminTransactions || [];
+  const t = tx.find(x => x.id === id);
+  if (!t) return toast("Data tidak ditemukan");
   
-  try {
-    const { error } = await cashDrawerClient.from("transactions").delete().match({ id, owner_id: KAS_PRIBADI_OWNER_ID });
-    if (error) throw error;
-    toast("Berhasil dihapus");
-    if (window.loadAdminTransactions) await window.loadAdminTransactions();
-    if (document.getElementById("cashOutTodayList")) renderCashOutTodayList();
-  } catch (e) {
-    toast(e.message || "Gagal menghapus", true);
-  } finally {
-    
+  const desc = String(t.description || "");
+  if (desc.includes("[AUTO-QRIS:") || /QRIS\s+otomatis\s+kasir/i.test(desc)) {
+    return toast("QRIS otomatis tidak bisa dihapus di sini. Hapus transaksi aslinya dari aplikasi staff.", true);
   }
+
+  window.closeCashOutModal();
+  setTimeout(async () => {
+    const p = await pinAsk(`Hapus transaksi Rp ${rp(t.amount)}?`);
+    if (!p) {
+      setTimeout(() => window.openCashOutModal(), 200);
+      return;
+    }
+    if (String(p) !== String(state.user.pin)) {
+      toast("PIN salah", true);
+      setTimeout(() => window.openCashOutModal(), 200);
+      return;
+    }
+    try {
+      const { error } = await cashDrawerClient.from("transactions").delete().match({ id, owner_id: KAS_PRIBADI_OWNER_ID });
+      if (error) throw error;
+      toast("QRIS/Tabungan dihapus");
+      if (window.loadAdminTransactions) await window.loadAdminTransactions();
+      setTimeout(() => window.openCashOutModal(), 200);
+    } catch (e) {
+      toast(e.message || "Gagal menghapus", true);
+      setTimeout(() => window.openCashOutModal(), 200);
+    }
+  }, 200);
 };
 
 window.addCashOut = async () => {
@@ -6141,6 +6160,7 @@ window.addCashOut = async () => {
     
     if (window.loadAdminTransactions) await window.loadAdminTransactions();
     if (document.getElementById("cashOutTodayList")) renderCashOutTodayList();
+    if (document.getElementById("cashOutCashFisikVal")) window.openCashOutModal();
   } catch(e) {
     toast(e.message || "Gagal menyimpan", true);
   } finally {
@@ -6169,34 +6189,123 @@ window.saveOpsExpense = async () => {
     };
     const { error } = await cashDrawerClient.from("transactions").insert([payload]);
     if (error) throw error;
-    closeModal();
     toast("Operasional tersimpan");
-    if (window.loadAdminTransactions) window.loadAdminTransactions();
+    
+    if (descInput) descInput.value = "";
+    if (amountInput) amountInput.value = "";
+    
+    if (window.loadAdminTransactions) await window.loadAdminTransactions();
+    if (document.getElementById("opsTodayList")) renderOpsTodayList();
   } catch(e) {
     toast(e.message || "Gagal menyimpan", true);
-  } finally {
-    
   }
 };
 
+window.renderOpsTodayList = () => {
+  const tx = state.data.adminTransactions || [];
+  const rows = tx.filter(t => t.type === 'expense' && String(t.description).startsWith("[OPS]"));
+  rows.sort((a,b) => b.id - a.id);
+  const total = rows.reduce((s,t) => s + Number(t.amount || 0), 0);
+  const te = document.getElementById('opsTodayTotal');
+  if (te) te.innerText = rp(total);
+  const list = document.getElementById('opsTodayList');
+  if (!list) return;
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px;font-weight:600;">Belum ada operasional hari ini</div>';
+    return;
+  }
+  list.innerHTML = rows.map(t => {
+    const desc = String(t.description || '').replace("[OPS]", "").trim();
+    return `<div style="display:flex;align-items:center;padding:12px 14px;background:var(--card);border:1.5px solid var(--line);border-radius:12px;margin-bottom:8px;">
+      <div style="flex:1;min-width:0">
+        <b style="font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);font-weight:800;margin-bottom:2px;">${esc(desc)}</b>
+        <small style="color:var(--muted);font-size:11.5px;font-weight:600;">${dateID(String(t.date))}</small>
+      </div>
+      <b style="color:var(--red);font-size:14px;margin-right:16px;font-family:monospace;font-weight:800;">-${rp(t.amount)}</b>
+      <button style="background:transparent;border:none;font-size:20px;padding:0;cursor:pointer;line-height:1;display:flex;align-items:center;" onclick="deleteOpsExpense(${t.id})" aria-label="Hapus">&#128465;&#65039;</button>
+    </div>`;
+  }).join('');
+};
+
+window.deleteOpsExpense = async (id) => {
+  const tx = state.data.adminTransactions || [];
+  const t = tx.find(x => x.id === id);
+  if (!t) return toast("Data operasional tidak ditemukan");
+
+  window.closeOpsModal();
+  setTimeout(async () => {
+    const p = await pinAsk(`Hapus operasional Rp ${rp(t.amount)}?`);
+    if (!p) {
+      setTimeout(() => window.openOpsModal(), 200);
+      return;
+    }
+    if (String(p) !== String(state.user.pin)) {
+      toast("PIN salah", true);
+      setTimeout(() => window.openOpsModal(), 200);
+      return;
+    }
+    try {
+      const { error } = await cashDrawerClient.from("transactions").delete().eq("owner_id", KAS_PRIBADI_OWNER_ID).eq("id", id);
+      if (error) throw error;
+      toast("Operasional toko dihapus");
+      if (window.loadAdminTransactions) await window.loadAdminTransactions();
+      setTimeout(() => window.openOpsModal(), 200);
+    } catch(e) {
+      toast(e.message || "Gagal menghapus", true);
+      setTimeout(() => window.openOpsModal(), 200);
+    }
+  }, 200);
+};
+
+window.closeOpsModal = () => {
+  const m = document.getElementById("customOpsModalWrap");
+  if (m) m.classList.remove("show");
+};
+
 window.openOpsModal = () => {
-  const body = `
-    <div class="field">
-      <div class="label" style="font-weight: 800; margin-bottom: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase;">Deskripsi Operasional</div>
-      <input id="opsDescInput" class="input" type="text" placeholder="Contoh: Beli ATK">
-    </div>
-    <div class="field" style="margin-top: 12px;">
-      <div class="label" style="font-weight: 800; margin-bottom: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase;">Nominal Rp</div>
-      <input id="opsAmountInput" class="input" type="tel" inputmode="numeric" placeholder="Contoh: 50000" oninput="formatRupiahInput(this)" style="font-size:20px;font-weight:950">
-    </div>
-  `;
-  const actions = `
-    <div style="display:flex;gap:8px;width:100%">
-      <button type="button" class="btn danger full" onclick="closeModal()">Batal</button>
-      <button type="button" class="btn primary full" onclick="saveOpsExpense()" style="background:#047857;">Simpan</button>
-    </div>
-  `;
-  modal("Operasional Toko", body, actions, "ops-modal");
+  let m = document.getElementById("customOpsModalWrap");
+  if (!m) {
+    m = document.createElement("div");
+    m.id = "customOpsModalWrap";
+    m.className = "modal-wrap";
+    m.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" style="padding:20px; background:var(--card); border-radius:24px; max-width:400px; width:90%; box-sizing:border-box; position:relative; box-shadow: 0 10px 40px rgba(0,0,0,0.15); border: 1.5px solid var(--line);">
+        <button style="position:absolute; top:16px; right:16px; background:transparent; border:none; font-size:24px; color:var(--muted); cursor:pointer; padding:4px;" onclick="closeOpsModal()">×</button>
+        <div style="margin-bottom:16px; padding-right:24px;">
+          <h3 style="margin:0 0 4px 0; font-size:17px; color:var(--text); font-weight:800;">Pengeluaran Operasional Toko</h3>
+          <small style="color:var(--muted); font-size:11.5px; font-weight:700; display:block; line-height:1.3;">Mengurangi pendapatan hari ini &bull; Masuk total pengeluaran</small>
+        </div>
+        <div style="margin-bottom:12px;">
+          <input id="opsDescInput" type="text" placeholder="Misal: plastik, bensin, dll" style="width:100%; box-sizing:border-box; font-size:15px; padding:12px 14px; border:1.5px solid var(--line); border-radius:12px; background:var(--card2); color:var(--text); outline:none; font-weight:600;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <input id="opsAmountInput" type="tel" inputmode="numeric" placeholder="Nominal" oninput="formatRupiahInput(this)" style="width:100%; box-sizing:border-box; font-size:18px; font-weight:800; padding:12px 14px; border:1.5px solid var(--line); border-radius:12px; background:var(--card2); color:var(--text); outline:none; font-family:monospace;">
+        </div>
+        <div style="display:flex; gap:10px; margin-bottom:20px;">
+          <button style="flex:1; background:var(--card2); color:var(--text); border:1.5px solid var(--line); font-size:15px; font-weight:800; border-radius:12px; padding:12px; cursor:pointer;" onclick="closeOpsModal()">Batal</button>
+          <button style="flex:1.5; background:#b45309; color:#fff; border:none; font-size:15px; font-weight:800; border-radius:12px; padding:12px; cursor:pointer;" onclick="saveOpsExpense()">Simpan</button>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 4px;">
+          <b style="font-size:14px; color:var(--text); font-weight:800;">Operasional Hari Ini</b>
+          <span id="opsTodayTotal" style="font-size:15px; color:#b45309; font-weight:900; font-family:monospace;">Rp 0</span>
+        </div>
+        <div id="opsTodayList" style="max-height:35vh; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:0;"></div>
+        <button style="width:100%; background:var(--card2); color:var(--text); border:1.5px solid var(--line); font-size:15px; font-weight:800; border-radius:12px; padding:12px; cursor:pointer;" onclick="closeOpsModal()">Tutup</button>
+      </div>
+    `;
+    document.body.appendChild(m);
+  }
+  
+  const d = document.getElementById("opsDescInput");
+  const a = document.getElementById("opsAmountInput");
+  if (d) d.value = "";
+  if (a) a.value = "";
+  
+  m.classList.add("show");
+  setTimeout(() => {
+    if (d) d.focus();
+    renderOpsTodayList();
+  }, 50);
 };
 
 window.openCashOutModal = () => {
@@ -6217,47 +6326,82 @@ window.openCashOutModal = () => {
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const cashFisik = globalFbTotal - opsTotal - qrisTotal - tabunganTotal;
 
-  const body = `
-    <div style="color:#2563eb;font-size:11px;font-weight:800;margin-bottom:12px;">QRIS & Tabungan tidak dihitung pengeluaran bisnis</div>
-    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div style="font-size:11px;font-weight:900;color:#1d4ed8;margin-bottom:2px">CASH DI TANGAN HARI INI</div>
-        <div class="num" style="font-size:24px;font-weight:900;color:${cashFisik < 0 ? 'var(--red)' : '#1d4ed8'}">Rp ${rp(cashFisik)}</div>
+  let m = document.getElementById("customCashOutModalWrap");
+  if (!m) {
+    m = document.createElement("div");
+    m.id = "customCashOutModalWrap";
+    m.className = "modal-wrap";
+    m.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" style="padding:20px; background:var(--card); border-radius:24px; max-width:420px; width:90%; box-sizing:border-box; position:relative; box-shadow: 0 10px 40px rgba(0,0,0,0.15); border: 1.5px solid var(--line);">
+        <button style="position:absolute; top:16px; right:16px; background:transparent; border:none; font-size:24px; color:var(--muted); cursor:pointer; padding:4px;" onclick="closeCashOutModal()">×</button>
+        <div style="margin-bottom:16px; padding-right:24px;">
+          <h3 style="margin:0 0 4px 0; font-size:17px; color:var(--text); font-weight:800;">Pengurangan Cash</h3>
+          <small style="color:#2563eb; font-size:11.5px; font-weight:700; display:block; line-height:1.3;">QRIS & Tabungan tidak dihitung pengeluaran bisnis</small>
+        </div>
+        
+        <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:14px;padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:11px;font-weight:900;color:#1d4ed8;margin-bottom:2px">CASH DI TANGAN HARI INI</div>
+            <div class="num" id="cashOutCashFisikVal" style="font-size:24px;font-weight:900;color:${cashFisik < 0 ? 'var(--red)' : '#1d4ed8'}">Rp ${rp(cashFisik)}</div>
+          </div>
+          <div style="text-align:right;font-size:11.5px;color:#4b5563;font-weight:800;line-height:1.8">
+            <div>QRIS: <span class="num" id="cashOutQrisVal" style="color:#2563eb">Rp ${rp(qrisTotal)}</span></div>
+            <div>Tabungan: <span class="num" id="cashOutTabunganVal" style="color:#854d0e">Rp ${rp(tabunganTotal)}</span></div>
+          </div>
+        </div>
+        
+        <div style="display:flex; gap:10px; margin-bottom:16px;">
+          <button id="cashout-type-qris" style="flex:1; font-size:15px; padding:12px; background:#dbeafe; color:#1d4ed8; border:2px solid #111; border-radius:12px; font-weight:800; cursor:pointer; box-shadow:2px 2px 0 #111;" onclick="setCashOutType('qris')">&#128241; QRIS</button>
+          <button id="cashout-type-tabungan" style="flex:1; font-size:15px; padding:12px; background:var(--card2); color:var(--muted); border:2px solid var(--line); border-radius:12px; font-weight:800; cursor:pointer; box-shadow:2px 2px 0 var(--line);" onclick="setCashOutType('tabungan')">&#127976; Tabungan</button>
+        </div>
+        
+        <div style="margin-bottom:12px;">
+          <input type="text" id="cashOutDesc" class="input" placeholder="Keterangan (opsional)" style="width:100%; box-sizing:border-box; font-size:15px; padding:12px 14px; border:1.5px solid var(--line); border-radius:12px; background:var(--card2); color:var(--text); outline:none; font-weight:600;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <input type="tel" id="cashOutAmount" class="input" placeholder="Nominal" inputmode="numeric" oninput="formatRupiahInput(this)" style="width:100%; box-sizing:border-box; font-size:18px; font-weight:800; padding:12px 14px; border:1.5px solid var(--line); border-radius:12px; background:var(--card2); color:var(--text); outline:none; font-family:monospace;">
+        </div>
+        
+        <div style="display:flex; gap:10px; margin-bottom:20px;">
+          <button style="flex:1; background:var(--card2); color:var(--text); border:1.5px solid var(--line); font-size:15px; font-weight:800; border-radius:12px; padding:12px; cursor:pointer;" onclick="closeCashOutModal()">Batal</button>
+          <button style="flex:1.5; background:#2563eb; color:#fff; border:none; font-size:15px; font-weight:800; border-radius:12px; padding:12px; cursor:pointer;" onclick="addCashOut()">Simpan</button>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 4px;">
+          <b style="font-size:14px; color:var(--text); font-weight:800;">Cash Keluar Hari Ini</b>
+          <span id="cashOutTodayTotal" style="font-size:15px; color:#2563eb; font-weight:900; font-family:monospace;">Rp 0</span>
+        </div>
+        <div id="cashOutTodayList" style="max-height:35vh; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:0;"></div>
+        <button style="width:100%; background:var(--card2); color:var(--text); border:1.5px solid var(--line); font-size:15px; font-weight:800; border-radius:12px; padding:12px; cursor:pointer;" onclick="closeCashOutModal()">Tutup</button>
       </div>
-      <div style="text-align:right;font-size:11px;color:#4b5563;font-weight:800;line-height:1.8">
-        <div>QRIS: <span class="num" style="color:#2563eb">Rp ${rp(qrisTotal)}</span></div>
-        <div>Tabungan: <span class="num" style="color:#854d0e">Rp ${rp(tabunganTotal)}</span></div>
-      </div>
-    </div>
-    
-    <div style="display:flex; gap:10px; margin-bottom:12px;">
-      <button id="cashout-type-qris" style="flex:1; font-size:14px; padding:10px; background:#dbeafe; color:#1d4ed8; border:2px solid #111; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:2px 2px 0 #111;" onclick="setCashOutType('qris')">📱 QRIS</button>
-      <button id="cashout-type-tabungan" style="flex:1; font-size:14px; padding:10px; background:#f1f5f9; color:#64748b; border:2px solid #cbd5e1; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:2px 2px 0 #cbd5e1;" onclick="setCashOutType('tabungan')">🏦 Tabungan</button>
-    </div>
-    
-    <div style="margin-bottom:12px;">
-      <input type="text" id="cashOutDesc" class="input" placeholder="Keterangan (opsional)" style="font-size:15px; width:100%; box-sizing:border-box;">
-    </div>
-    <div style="margin-bottom:12px;">
-      <input type="tel" id="cashOutAmount" class="input" placeholder="Nominal" inputmode="numeric" oninput="formatRupiahInput(this)" style="font-size:17px; font-weight:800; width:100%; box-sizing:border-box;">
-    </div>
-    
-    <div style="display:flex; gap:10px; margin-bottom:14px;">
-      <button class="btn secondary" style="flex:1;" onclick="closeModal()">Batal</button>
-      <button class="btn primary" style="flex:1.5;" onclick="addCashOut()">💾 Simpan</button>
-    </div>
-    
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <b style="font-size:14px">📋 Cash Keluar Hari Ini</b>
-      <span id="cashOutTodayTotal" class="num" style="font-size:15px; color:#2563eb; font-weight:900">Rp 0</span>
-    </div>
-    <div id="cashOutTodayList" style="max-height:40vh; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:8px; background:#f8fafc;"></div>
-  `;
+    `;
+    document.body.appendChild(m);
+  } else {
+    // update dynamic values if modal exists
+    const cashOutCashFisikVal = document.getElementById("cashOutCashFisikVal");
+    const cashOutQrisVal = document.getElementById("cashOutQrisVal");
+    const cashOutTabunganVal = document.getElementById("cashOutTabunganVal");
+    if (cashOutCashFisikVal) {
+      cashOutCashFisikVal.innerText = 'Rp ' + rp(cashFisik);
+      cashOutCashFisikVal.style.color = cashFisik < 0 ? 'var(--red)' : '#1d4ed8';
+    }
+    if (cashOutQrisVal) cashOutQrisVal.innerText = 'Rp ' + rp(qrisTotal);
+    if (cashOutTabunganVal) cashOutTabunganVal.innerText = 'Rp ' + rp(tabunganTotal);
+  }
   
-  modal("💰 Pengurangan Cash", body, "", "cashout-modal");
+  const d = document.getElementById("cashOutDesc");
+  const a = document.getElementById("cashOutAmount");
+  if (d) d.value = "";
+  if (a) a.value = "";
   
+  m.classList.add("show");
   setCashOutType('qris');
   setTimeout(() => renderCashOutTodayList(), 50);
+};
+
+window.closeCashOutModal = () => {
+  const m = document.getElementById("customCashOutModalWrap");
+  if (m) m.classList.remove("show");
 };
 
 function opsAccessCard() {
