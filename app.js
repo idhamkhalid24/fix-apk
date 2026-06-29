@@ -3550,7 +3550,7 @@ function startStaffRealtime() {
 
   staffRealtimeUnsubs.push(
     onSnapshot(
-      doc(db, "ops_access", `ops_${dateKey()}_${u}`),
+      doc(db, "ops_access", `ops_${todayKey()}_${u}`),
       (snap) => {
         const wasGranted = !!state.data.opsAccess;
         state.data.opsAccess = snap && snap.exists() ? snap.data() : null;
@@ -3584,15 +3584,13 @@ function startStaffRealtime() {
         }
         state.user = {
           ...state.user,
-          username: key(fresh.username || u),
-          name: fresh.name || state.user.name || u,
-          role: fresh.role || state.user.role || "staff",
           transactionBonusRate: hasBonusValue(fresh.transactionBonusRate)
             ? Number(fresh.transactionBonusRate)
             : null,
           transactionBonusPercent: hasBonusValue(fresh.transactionBonusPercent)
             ? Number(fresh.transactionBonusPercent)
             : null,
+
           closingBonusPerMinute: isDailyUser(fresh)
             ? 0
             : hasBonusValue(fresh.closingBonusPerMinute)
@@ -3613,7 +3611,7 @@ function startStaffRealtime() {
           ),
           ...trialSessionFields(fresh),
         };
-        render();
+        debouncedRender();
       },
       (err) => handleRealtimeError("User", err),
     ),
@@ -6045,13 +6043,120 @@ window.loadAdminTransactions = async () => {
   } catch(e) {}
 };
 
-window.saveOpsExpense = async () => {
-  const desc = $("opsDescInput")?.value?.trim();
-  const amount = Number(onlyDigits($("opsAmountInput")?.value || "0"));
-  if (!desc) return toast("Deskripsi harus diisi", true);
+let currentCashOutType = "qris";
+
+window.setCashOutType = (type) => {
+  currentCashOutType = type;
+  const qBtn = document.getElementById("cashout-type-qris");
+  const tBtn = document.getElementById("cashout-type-tabungan");
+  if (qBtn) {
+    qBtn.style.background = type === "qris" ? "#dbeafe" : "#f1f5f9";
+    qBtn.style.color = type === "qris" ? "#1d4ed8" : "#64748b";
+    qBtn.style.borderColor = type === "qris" ? "#111" : "#cbd5e1";
+  }
+  if (tBtn) {
+    tBtn.style.background = type === "tabungan" ? "#fef3c7" : "#f1f5f9";
+    tBtn.style.color = type === "tabungan" ? "#b45309" : "#64748b";
+    tBtn.style.borderColor = type === "tabungan" ? "#111" : "#cbd5e1";
+  }
+};
+
+window.renderCashOutTodayList = () => {
+  const tx = state.data.adminTransactions || [];
+  const rows = tx.filter(t => t.type === 'expense' && (String(t.description).startsWith("[CASHOUT:qris]") || String(t.description).startsWith("[CASHOUT:tabungan]")));
+  rows.sort((a,b) => b.id - a.id);
+  const total = rows.reduce((s,t) => s + Number(t.amount || 0), 0);
+  const te = document.getElementById('cashOutTodayTotal');
+  if(te) te.innerText = rp(total);
+  
+  const list = document.getElementById('cashOutTodayList');
+  if(!list) return;
+  
+  if(!rows.length) {
+    list.innerHTML = '<div class="empty" style="font-size:12px;padding:14px;text-align:center;color:#758071">Belum ada QRIS/Tabungan hari ini</div>';
+    return;
+  }
+  
+  list.innerHTML = rows.map(t => {
+    const isQris = String(t.description).startsWith("[CASHOUT:qris]");
+    const tp = isQris ? 'qris' : 'tabungan';
+    const label = isQris ? 'QRIS' : 'Tabungan';
+    let desc = String(t.description).replace("[CASHOUT:qris] ", "").replace("[CASHOUT:tabungan] ", "");
+    if(desc === "[CASHOUT:qris]" || desc === "[CASHOUT:tabungan]") desc = label;
+    
+    const badgeStyle = isQris ? "background:#dbeafe; color:#1d4ed8; border:1px solid #bfdbfe;" : "background:#fef3c7; color:#b45309; border:1px solid #fde68a;";
+    
+    return `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 10px; border:1px solid #e5e7eb; border-radius:13px; margin-bottom:7px; background:white;">
+      <div style="min-width:0;flex:1;display:flex;align-items:center;gap:7px">
+        <span style="display:inline-flex; align-items:center; padding:2px 6px; border-radius:999px; font-size:9px; font-weight:800; ${badgeStyle}">${label}</span>
+        <div style="min-width:0">
+          <b style="font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${desc}</b>
+          <span style="font-size:10px;color:var(--muted)">${String(t.date).slice(0,10)}</span>
+        </div>
+      </div>
+      <b class="num" style="font-size:14px;color:#2563eb;white-space:nowrap">-${rp(t.amount)}</b>
+      <button class="x" style="color:var(--red);font-size:18px;padding:4px 8px; border:none; background:transparent; cursor:pointer;" onclick="deleteCashOut(${t.id})" aria-label="Hapus" title="Hapus">✕</button>
+    </div>`;
+  }).join('');
+};
+
+window.deleteCashOut = async (id) => {
+  if (!confirm("Hapus pengeluaran ini?")) return;
+  
+  try {
+    const { error } = await cashDrawerClient.from("transactions").delete().match({ id, owner_id: KAS_PRIBADI_OWNER_ID });
+    if (error) throw error;
+    toast("Berhasil dihapus");
+    if (window.loadAdminTransactions) await window.loadAdminTransactions();
+    if (document.getElementById("cashOutTodayList")) renderCashOutTodayList();
+  } catch (e) {
+    toast(e.message || "Gagal menghapus", true);
+  } finally {
+    
+  }
+};
+
+window.addCashOut = async () => {
+  const descRaw = document.getElementById("cashOutDesc")?.value?.trim() || "";
+  const amount = Number(onlyDigits(document.getElementById("cashOutAmount")?.value || "0"));
   if (!amount || amount <= 0) return toast("Nominal tidak valid", true);
   
-  setBusy(true);
+  
+  try {
+    const payload = {
+      id: Date.now(),
+      owner_id: KAS_PRIBADI_OWNER_ID,
+      date: todayKey(),
+      description: "[CASHOUT:" + currentCashOutType + "] " + descRaw,
+      amount: amount,
+      type: "expense",
+      category_name: "Pengurangan Cash"
+    };
+    const { error } = await cashDrawerClient.from("transactions").insert([payload]);
+    if (error) throw error;
+    toast("Pengeluaran tersimpan");
+    
+    document.getElementById("cashOutDesc").value = "";
+    document.getElementById("cashOutAmount").value = "";
+    
+    if (window.loadAdminTransactions) await window.loadAdminTransactions();
+    if (document.getElementById("cashOutTodayList")) renderCashOutTodayList();
+  } catch(e) {
+    toast(e.message || "Gagal menyimpan", true);
+  } finally {
+    
+  }
+};
+
+window.saveOpsExpense = async () => {
+  const descInput = document.getElementById("opsDescInput");
+  const amountInput = document.getElementById("opsAmountInput");
+  const desc = descInput?.value?.trim();
+  const amount = Number(onlyDigits(amountInput?.value || "0"));
+  if (!desc) return toast("Deskripsi harus diisi", true);
+  if (!amount || amount <= 0) return toast("Nominal minimal Rp 1", true);
+  
+  
   try {
     const payload = {
       id: Date.now(),
@@ -6066,75 +6171,93 @@ window.saveOpsExpense = async () => {
     if (error) throw error;
     closeModal();
     toast("Operasional tersimpan");
-    loadAdminTransactions();
+    if (window.loadAdminTransactions) window.loadAdminTransactions();
   } catch(e) {
     toast(e.message || "Gagal menyimpan", true);
   } finally {
-    setBusy(false);
-  }
-};
-
-window.saveQrisExpense = async () => {
-  const amount = Number(onlyDigits($("qrisAmountInput")?.value || "0"));
-  if (!amount || amount <= 0) return toast("Nominal tidak valid", true);
-  
-  setBusy(true);
-  try {
-    const payload = {
-      id: Date.now(),
-      owner_id: KAS_PRIBADI_OWNER_ID,
-      date: todayKey(),
-      description: "[CASHOUT:qris] Tarik Tunai QRIS",
-      amount: amount,
-      type: "expense",
-      category_name: "Tarik Tunai"
-    };
-    const { error } = await cashDrawerClient.from("transactions").insert([payload]);
-    if (error) throw error;
-    closeModal();
-    toast("QRIS tersimpan");
-    loadAdminTransactions();
-  } catch(e) {
-    toast(e.message || "Gagal menyimpan", true);
-  } finally {
-    setBusy(false);
+    
   }
 };
 
 window.openOpsModal = () => {
   const body = `
     <div class="field">
-      <div class="label">Deskripsi Operasional</div>
-      <input id="opsDescInput" class="input" type="text" placeholder="Misal: Beli ATK">
+      <div class="label" style="font-weight: 800; margin-bottom: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase;">Deskripsi Operasional</div>
+      <input id="opsDescInput" class="input" type="text" placeholder="Contoh: Beli ATK">
     </div>
-    <div class="field">
-      <div class="label">Nominal Rp</div>
-      <input id="opsAmountInput" class="input" type="tel" inputmode="numeric" placeholder="0" oninput="formatRupiahInput(this)" style="font-size:25px;font-weight:950">
+    <div class="field" style="margin-top: 12px;">
+      <div class="label" style="font-weight: 800; margin-bottom: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase;">Nominal Rp</div>
+      <input id="opsAmountInput" class="input" type="tel" inputmode="numeric" placeholder="Contoh: 50000" oninput="formatRupiahInput(this)" style="font-size:20px;font-weight:950">
     </div>
   `;
   const actions = `
     <div style="display:flex;gap:8px;width:100%">
       <button type="button" class="btn danger full" onclick="closeModal()">Batal</button>
-      <button type="button" class="btn primary full" onclick="saveOpsExpense()">Simpan</button>
+      <button type="button" class="btn primary full" onclick="saveOpsExpense()" style="background:#047857;">Simpan</button>
     </div>
   `;
   modal("Operasional Toko", body, actions, "ops-modal");
 };
 
-window.openQrisModal = () => {
+window.openCashOutModal = () => {
+  const tx = state.data.adminTransactions || [];
+  let opsTotal = 0;
+  let qrisTotal = 0;
+  let tabunganTotal = 0;
+  for (const t of tx) {
+    if (t.type === 'expense') {
+      if (String(t.description).startsWith("[OPS]")) opsTotal += Number(t.amount || 0);
+      else if (String(t.description).startsWith("[CASHOUT:qris]")) qrisTotal += Number(t.amount || 0);
+      else if (String(t.description).startsWith("[CASHOUT:tabungan]")) tabunganTotal += Number(t.amount || 0);
+    }
+  }
+  const allFirebaseTx = state.data.targetTx || [];
+  const globalFbTotal = allFirebaseTx
+    .filter(t => !deleted(t) && (t.dateKey || t.date) === todayKey())
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const cashFisik = globalFbTotal - opsTotal - qrisTotal - tabunganTotal;
+
   const body = `
-    <div class="field">
-      <div class="label">Nominal QRIS Rp</div>
-      <input id="qrisAmountInput" class="input" type="tel" inputmode="numeric" placeholder="0" oninput="formatRupiahInput(this)" style="font-size:25px;font-weight:950">
+    <div style="color:#2563eb;font-size:11px;font-weight:800;margin-bottom:12px;">QRIS & Tabungan tidak dihitung pengeluaran bisnis</div>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:11px;font-weight:900;color:#1d4ed8;margin-bottom:2px">CASH DI TANGAN HARI INI</div>
+        <div class="num" style="font-size:24px;font-weight:900;color:${cashFisik < 0 ? 'var(--red)' : '#1d4ed8'}">Rp ${rp(cashFisik)}</div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:#4b5563;font-weight:800;line-height:1.8">
+        <div>QRIS: <span class="num" style="color:#2563eb">Rp ${rp(qrisTotal)}</span></div>
+        <div>Tabungan: <span class="num" style="color:#854d0e">Rp ${rp(tabunganTotal)}</span></div>
+      </div>
     </div>
-  `;
-  const actions = `
-    <div style="display:flex;gap:8px;width:100%">
-      <button type="button" class="btn danger full" onclick="closeModal()">Batal</button>
-      <button type="button" class="btn primary full" onclick="saveQrisExpense()">Simpan</button>
+    
+    <div style="display:flex; gap:10px; margin-bottom:12px;">
+      <button id="cashout-type-qris" style="flex:1; font-size:14px; padding:10px; background:#dbeafe; color:#1d4ed8; border:2px solid #111; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:2px 2px 0 #111;" onclick="setCashOutType('qris')">📱 QRIS</button>
+      <button id="cashout-type-tabungan" style="flex:1; font-size:14px; padding:10px; background:#f1f5f9; color:#64748b; border:2px solid #cbd5e1; border-radius:8px; font-weight:800; cursor:pointer; box-shadow:2px 2px 0 #cbd5e1;" onclick="setCashOutType('tabungan')">🏦 Tabungan</button>
     </div>
+    
+    <div style="margin-bottom:12px;">
+      <input type="text" id="cashOutDesc" class="input" placeholder="Keterangan (opsional)" style="font-size:15px; width:100%; box-sizing:border-box;">
+    </div>
+    <div style="margin-bottom:12px;">
+      <input type="tel" id="cashOutAmount" class="input" placeholder="Nominal" inputmode="numeric" oninput="formatRupiahInput(this)" style="font-size:17px; font-weight:800; width:100%; box-sizing:border-box;">
+    </div>
+    
+    <div style="display:flex; gap:10px; margin-bottom:14px;">
+      <button class="btn secondary" style="flex:1;" onclick="closeModal()">Batal</button>
+      <button class="btn primary" style="flex:1.5;" onclick="addCashOut()">💾 Simpan</button>
+    </div>
+    
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <b style="font-size:14px">📋 Cash Keluar Hari Ini</b>
+      <span id="cashOutTodayTotal" class="num" style="font-size:15px; color:#2563eb; font-weight:900">Rp 0</span>
+    </div>
+    <div id="cashOutTodayList" style="max-height:40vh; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:8px; background:#f8fafc;"></div>
   `;
-  modal("Tarik Tunai QRIS", body, actions, "qris-modal");
+  
+  modal("💰 Pengurangan Cash", body, "", "cashout-modal");
+  
+  setCashOutType('qris');
+  setTimeout(() => renderCashOutTodayList(), 50);
 };
 
 function opsAccessCard() {
@@ -6142,33 +6265,47 @@ function opsAccessCard() {
   const tx = state.data.adminTransactions || [];
   let opsTotal = 0;
   let qrisTotal = 0;
+  let tabunganTotal = 0;
   for (const t of tx) {
     if (t.type === 'expense') {
-      const desc = String(t.description || "");
-      if (desc.startsWith("[OPS]")) opsTotal += Number(t.amount || 0);
-      else if (desc.startsWith("[CASHOUT:qris]")) qrisTotal += Number(t.amount || 0);
+      if (String(t.description).startsWith("[OPS]")) opsTotal += Number(t.amount || 0);
+      else if (String(t.description).startsWith("[CASHOUT:qris]")) qrisTotal += Number(t.amount || 0);
+      else if (String(t.description).startsWith("[CASHOUT:tabungan]")) tabunganTotal += Number(t.amount || 0);
     }
   }
+  const allFirebaseTx = state.data.targetTx || [];
+  const globalFbTotal = allFirebaseTx
+    .filter(t => !deleted(t) && (t.dateKey || t.date) === todayKey())
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const cashFisik = globalFbTotal - opsTotal - qrisTotal - tabunganTotal;
   
   return `
-    <div class="card mb" style="border: 2px solid #ef4444; overflow: hidden; margin-top:8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-      <div style="background: #ef4444; color: white; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
-        <div style="font-weight: 800; font-size: 14px;">Cash Fisik Hari Ini</div>
-        <div style="font-size: 10px; font-weight: 800; background: rgba(0,0,0,0.2); padding: 4px 8px; border-radius: 4px;">HARI INI</div>
+    <div style="background:#eff6ff; border:1.5px solid #bfdbfe; border-radius:18px; padding:11px 12px; margin-bottom:10px; box-shadow:0 1px 2px 0 rgba(0,0,0,0.05); overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:10px; font-weight:950; color:#2563eb; text-transform:uppercase; letter-spacing:0.45px; margin:0 0 3px; line-height:1.1;">Cash Fisik Hari Ini</div>
+          <div class="num" style="font-size:24px; color:${cashFisik < 0 ? 'var(--red)' : '#2563eb'}; cursor:pointer; font-weight:950; line-height:1.08; letter-spacing:-0.5px;" onclick="openCashOutModal()">Rp ${rp(cashFisik)}</div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:flex-end; gap:5px; min-width:max-content;">
+          <span style="min-height:24px; display:inline-flex; align-items:center; justify-content:center; font-size:8.8px; background:#dbeafe; color:#1d4ed8; border:2px solid #111; border-radius:999px; padding:3px 7px; font-weight:950; box-shadow:2px 2px 0 #111; line-height:1; white-space:nowrap;">HARI INI</span>
+        </div>
       </div>
-      <div style="padding: 16px;">
-        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-          <button onclick="openOpsModal()" class="btn" style="flex: 1; background: #fff3e0; color: #e8820c; border: 1px solid #111; font-weight: 800;">+ Ops</button>
-          <button onclick="openQrisModal()" class="btn" style="flex: 1; background: #dbeafe; color: #1d4ed8; border: 1px solid #111; font-weight: 800;">+ QRIS</button>
+      
+      <div style="display:grid; gap:7px; margin-top:8px; padding-top:8px; border-top:1px dashed #bfdbfe;">
+        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:stretch; gap:7px; margin:0 0 1px; width:100%;">
+          <button onclick="openOpsModal()" style="width:100%; min-height:30px; padding:6px 7px; font-size:10px; line-height:1; border-radius:999px; font-weight:950; border:2px solid #111; box-shadow:2px 2px 0 #111; cursor:pointer; white-space:nowrap; background:#fff3e0; color:#e8820c;">+ Ops</button>
+          <button onclick="openCashOutModal()" style="width:100%; min-height:30px; padding:6px 7px; font-size:10px; line-height:1; border-radius:999px; font-weight:950; border:2px solid #111; box-shadow:2px 2px 0 #111; cursor:pointer; white-space:nowrap; background:#dbeafe; color:#1d4ed8;">+ QRIS</button>
         </div>
-        <div style="font-size: 10px; color: var(--muted); margin-bottom: 12px; text-align: center;">Operasional Toko - QRIS</div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
-          <span style="color: var(--muted);">Operasional Toko</span>
-          <b style="color: #e8820c;">Rp ${rp(opsTotal)}</b>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 13px;">
-          <span style="color: var(--muted);">QRIS</span>
-          <b style="color: #2563eb;">Rp ${rp(qrisTotal)}</b>
+        <div class="small" style="font-size:10.2px; color:#4b5563; line-height:1.35; font-weight:850; background:#f8fbff; border:1px solid #dbeafe; border-radius:12px; padding:7px 8px; word-break:break-word; text-align:center;">Operasional Toko - QRIS</div>
+        <div style="margin-top:0; padding-top:0; border:1px solid #dbeafe; border-radius:14px; overflow:hidden; display:flex; flex-direction:column; background:white;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:7px 9px; border-bottom:1px solid #eef2ff;">
+            <span style="font-size:10px; color:var(--muted); font-weight:900;">Operasional Toko</span>
+            <b class="num" style="font-size:12.5px; font-weight:950; cursor:pointer; white-space:nowrap; color:#e8820c;" onclick="openOpsModal()">Rp ${rp(opsTotal)}</b>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:7px 9px;">
+            <span style="font-size:10px; color:var(--muted); font-weight:900;">QRIS</span>
+            <b class="num" style="font-size:12.5px; font-weight:950; cursor:pointer; white-space:nowrap; color:#2563eb;" onclick="openCashOutModal()">Rp ${rp(qrisTotal)}</b>
+          </div>
         </div>
       </div>
     </div>
