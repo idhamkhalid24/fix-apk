@@ -3189,6 +3189,7 @@ function mergeScopedRows(listName, rows) {
 }
 function handleRealtimeError(label, err) {
   console.warn(label + " realtime gagal", err?.code || err?.message || err);
+  if (label === "Ops Access" || label === "User") return;
   state.syncError =
     label + " realtime gagal. Pakai tombol refresh jika data belum masuk.";
   render();
@@ -3550,10 +3551,11 @@ function startStaffRealtime() {
 
   staffRealtimeUnsubs.push(
     onSnapshot(
-      doc(db, "ops_access", `ops_${todayKey()}_${u}`),
+      doc(db, "ops_access", `ops_access_${u}`),
       (snap) => {
         const wasGranted = !!state.data.opsAccess;
-        state.data.opsAccess = snap && snap.exists() ? snap.data() : null;
+        const data = snap && snap.exists() ? snap.data() : null;
+        state.data.opsAccess = (data && data.granted === true) ? data : null;
         if (state.data.opsAccess && !wasGranted && window.loadAdminTransactions) {
           window.loadAdminTransactions();
         }
@@ -6262,6 +6264,11 @@ window.closeOpsModal = () => {
   if (m) m.classList.remove("show");
 };
 
+window.toggleOpsCard = () => {
+  state.data.opsCardOpen = !state.data.opsCardOpen;
+  render();
+};
+
 window.openOpsModal = () => {
   let m = document.getElementById("customOpsModalWrap");
   if (!m) {
@@ -6422,26 +6429,28 @@ function opsAccessCard() {
     .filter(t => !deleted(t) && (t.dateKey || t.date) === todayKey())
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const cashFisik = globalFbTotal - opsTotal - qrisTotal - tabunganTotal;
-  
+  const isOpen = state.data.opsCardOpen === true;
+
   return `
     <div style="background:#eff6ff; border:1.5px solid #bfdbfe; border-radius:18px; padding:11px 12px; margin-bottom:10px; box-shadow:0 1px 2px 0 rgba(0,0,0,0.05); overflow:hidden;">
-      <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleOpsCard()">
         <div style="min-width:0;">
-          <div style="font-size:10px; font-weight:950; color:#2563eb; text-transform:uppercase; letter-spacing:0.45px; margin:0 0 3px; line-height:1.1;">Cash Fisik Hari Ini</div>
-          <div class="num" style="font-size:24px; color:${cashFisik < 0 ? 'var(--red)' : '#2563eb'}; cursor:pointer; font-weight:950; line-height:1.08; letter-spacing:-0.5px;" onclick="openCashOutModal()">Rp ${rp(cashFisik)}</div>
+          <div style="font-size:10px; font-weight:950; color:#2563eb; text-transform:uppercase; letter-spacing:0.45px; margin:0 0 2px; line-height:1.1;">Cash Fisik Hari Ini</div>
+          <div class="num" style="font-size:22px; color:${cashFisik < 0 ? 'var(--red)' : '#2563eb'}; font-weight:950; line-height:1.08; letter-spacing:-0.5px;">Rp ${rp(cashFisik)}</div>
         </div>
-        <div style="display:flex; align-items:center; justify-content:flex-end; gap:5px; min-width:max-content;">
+        <div style="display:flex; align-items:center; gap:6px;">
           <span style="min-height:24px; display:inline-flex; align-items:center; justify-content:center; font-size:8.8px; background:#dbeafe; color:#1d4ed8; border:2px solid #111; border-radius:999px; padding:3px 7px; font-weight:950; box-shadow:2px 2px 0 #111; line-height:1; white-space:nowrap;">HARI INI</span>
+          <span style="font-size:16px; color:#2563eb; font-weight:900; transition:transform 0.2s; display:inline-block; transform:rotate(${isOpen ? '180deg' : '0deg'});">▾</span>
         </div>
       </div>
-      
-      <div style="display:grid; gap:7px; margin-top:8px; padding-top:8px; border-top:1px dashed #bfdbfe;">
-        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:stretch; gap:7px; margin:0 0 1px; width:100%;">
+      ${isOpen ? `
+      <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #bfdbfe;">
+        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-bottom:8px; width:100%;">
           <button onclick="openOpsModal()" style="width:100%; min-height:30px; padding:6px 7px; font-size:10px; line-height:1; border-radius:999px; font-weight:950; border:2px solid #111; box-shadow:2px 2px 0 #111; cursor:pointer; white-space:nowrap; background:#fff3e0; color:#e8820c;">+ Ops</button>
           <button onclick="openCashOutModal()" style="width:100%; min-height:30px; padding:6px 7px; font-size:10px; line-height:1; border-radius:999px; font-weight:950; border:2px solid #111; box-shadow:2px 2px 0 #111; cursor:pointer; white-space:nowrap; background:#dbeafe; color:#1d4ed8;">+ QRIS</button>
         </div>
         <div class="small" style="font-size:10.2px; color:#4b5563; line-height:1.35; font-weight:850; background:#f8fbff; border:1px solid #dbeafe; border-radius:12px; padding:7px 8px; word-break:break-word; text-align:center;">Operasional Toko - QRIS</div>
-        <div style="margin-top:0; padding-top:0; border:1px solid #dbeafe; border-radius:14px; overflow:hidden; display:flex; flex-direction:column; background:white;">
+        <div style="margin-top:7px; border:1px solid #dbeafe; border-radius:14px; overflow:hidden; display:flex; flex-direction:column; background:white;">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:7px 9px; border-bottom:1px solid #eef2ff;">
             <span style="font-size:10px; color:var(--muted); font-weight:900;">Operasional Toko</span>
             <b class="num" style="font-size:12.5px; font-weight:950; cursor:pointer; white-space:nowrap; color:#e8820c;" onclick="openOpsModal()">Rp ${rp(opsTotal)}</b>
@@ -6451,7 +6460,7 @@ function opsAccessCard() {
             <b class="num" style="font-size:12.5px; font-weight:950; cursor:pointer; white-space:nowrap; color:#2563eb;" onclick="openCashOutModal()">Rp ${rp(qrisTotal)}</b>
           </div>
         </div>
-      </div>
+      </div>` : ''}
     </div>
   `;
 }
