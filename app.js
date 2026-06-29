@@ -3556,8 +3556,29 @@ function startStaffRealtime() {
         const wasGranted = !!state.data.opsAccess;
         const data = snap && snap.exists() ? snap.data() : null;
         state.data.opsAccess = (data && data.granted === true) ? data : null;
-        if (state.data.opsAccess && !wasGranted && window.loadAdminTransactions) {
-          window.loadAdminTransactions();
+        if (state.data.opsAccess && !wasGranted) {
+          if (window.loadAdminTransactions) window.loadAdminTransactions();
+          
+          if (!window._adminTxChannel) {
+            window._adminTxChannel = cashDrawerClient
+              .channel('admin_tx_realtime')
+              .on("postgres_changes", { event: "*", schema: "public", table: "transactions", filter: "owner_id=eq." + KAS_PRIBADI_OWNER_ID }, () => {
+                if (window.loadAdminTransactions) window.loadAdminTransactions();
+              })
+              .subscribe();
+            
+            staffRealtimeUnsubs.push(() => {
+              if (window._adminTxChannel) {
+                cashDrawerClient.removeChannel(window._adminTxChannel).catch(() => {});
+                window._adminTxChannel = null;
+              }
+            });
+          }
+        } else if (!state.data.opsAccess && wasGranted) {
+          if (window._adminTxChannel) {
+            cashDrawerClient.removeChannel(window._adminTxChannel).catch(() => {});
+            window._adminTxChannel = null;
+          }
         }
         debouncedRender();
       },
@@ -6033,7 +6054,7 @@ function openPrayerAyat(autoPlay = false) {
   if (autoPlay) playPrayerAyat();
 }
 
-window.loadAdminTransactions = async () => {
+window.loadAdminTransactions = async (showNotice) => {
   if (!state.data.opsAccess) return;
   try {
     const { data } = await cashDrawerClient.from("transactions")
@@ -6042,7 +6063,10 @@ window.loadAdminTransactions = async () => {
       .eq("date", todayKey());
     state.data.adminTransactions = data || [];
     render();
-  } catch(e) {}
+    if (showNotice) toast("Data Cash Fisik direfresh");
+  } catch(e) {
+    if (showNotice) toast("Gagal refresh Cash Fisik", true);
+  }
 };
 
 let currentCashOutType = "qris";
@@ -6439,6 +6463,9 @@ function opsAccessCard() {
           <div class="num" style="font-size:22px; color:${cashFisik < 0 ? 'var(--red)' : '#2563eb'}; font-weight:950; line-height:1.08; letter-spacing:-0.5px;">Rp ${rp(cashFisik)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
+          <button type="button" onclick="event.stopPropagation(); if(window.loadAdminTransactions) window.loadAdminTransactions(true);" style="background:transparent; border:none; color:#2563eb; padding:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; border-radius:50%;" title="Refresh Cash Fisik">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.2 6.5"/><path d="M3 12A9 9 0 0 1 18.2 5.5"/><path d="M18 2v4h-4"/><path d="M6 22v-4h4"/></svg>
+          </button>
           <span style="min-height:24px; display:inline-flex; align-items:center; justify-content:center; font-size:8.8px; background:#dbeafe; color:#1d4ed8; border:2px solid #111; border-radius:999px; padding:3px 7px; font-weight:950; box-shadow:2px 2px 0 #111; line-height:1; white-space:nowrap;">HARI INI</span>
           <span style="font-size:16px; color:#2563eb; font-weight:900; transition:transform 0.2s; display:inline-block; transform:rotate(${isOpen ? '180deg' : '0deg'});">▾</span>
         </div>
