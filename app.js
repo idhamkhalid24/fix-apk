@@ -4976,23 +4976,23 @@ function pickTxProductSuggest(index) {
   const name = txProductSuggestItems[Number(index)];
   const input = $("txProductInput");
   if (!name || !input) return;
-  // Kosongkan input langsung setelah pick agar suggest tidak muncul lagi
+  
   txProductSuggestItems = [];
   txProductSuggestActiveIndex = -1;
-  input.value = "";
   const floater = document.getElementById("txProductSuggestFloater");
   if (floater) { floater.style.display = "none"; floater.innerHTML = ""; }
-  // Tambah ke draft list langsung
+  
   const val = txProductName(name);
   if (val) {
-    txProductDraftItems.push(val);
-    addTxProductToHistory(val);
+    input.value = val;
+    updateTxProductAddButton();
   }
-  renderTxProductDraft();
+  
+  const qtyInput = $("txProductQty");
   setTimeout(() => {
-    if (input) {
-      input.focus();
-      input.setSelectionRange(0, 0);
+    if (qtyInput) {
+      qtyInput.focus();
+      qtyInput.select();
     }
   }, 0);
 }
@@ -5074,10 +5074,16 @@ function renderTxProductDraft() {
     return;
   }
   list.innerHTML = txProductDraftItems
-    .map(
-      (item, i) =>
-        `<div class="tx-product-row"><span class="tx-product-no">&gt;</span><span class="tx-product-name">${esc(item)}</span><button type="button" class="tx-product-remove" onclick="removeTxProductItem(${i})">Hapus</button></div>`,
-    )
+    .map((item, i) => {
+      const parts = item.split(" qty ");
+      const namePart = parts[0] || item;
+      const qtyPart = parts[1] || "";
+      return `<div class="tx-product-row" style="grid-template-columns: minmax(0,1fr) 50px auto !important; padding-left: 8px;">
+        <span class="tx-product-name">${esc(namePart)}</span>
+        <span style="text-align:center;font-weight:700;color:var(--primary)">${qtyPart ? esc(qtyPart) : ''}</span>
+        <button type="button" class="tx-product-remove" onclick="removeTxProductItem(${i})">Hapus</button>
+      </div>`;
+    })
     .join("");
 }
 function updateTxProductAddButton() {
@@ -5086,7 +5092,9 @@ function updateTxProductAddButton() {
 }
 function addTxProductItem() {
   const input = $("txProductInput");
+  const qtyInput = $("txProductQty");
   const value = txProductName(input?.value || "");
+  const qty = parseInt(qtyInput?.value || "1") || 1;
   if (!value) {
     renderTxProductDraft();
     input?.focus?.();
@@ -5099,9 +5107,10 @@ function addTxProductItem() {
     return;
   }
 
-  txProductDraftItems.push(value);
+  txProductDraftItems.push(`${value} qty ${qty}`);
   addTxProductToHistory(value);
   if (input) input.value = "";
+  if (qtyInput) qtyInput.value = "1";
   hideTxProductSuggest();
   renderTxProductDraft();
   setTimeout(() => input?.focus?.(), 0);
@@ -5114,7 +5123,7 @@ function removeTxProductItem(index) {
   setTimeout(() => $("txProductInput")?.focus?.(), 0);
 }
 function handleTxProductKey(e) {
-  if (e?.key === "Enter") {
+  if (e?.key === "Enter" || e?.keyCode === 13) {
     e.preventDefault();
     if (
       txProductSuggestActiveIndex >= 0 &&
@@ -7016,10 +7025,11 @@ function home() {
     const body = `<div class="tx-chip"><span>Input cepat</span><b>${timeNow()} WIB</b></div>
     <div class="field tx-product-builder" style="position:relative">
       <div class="label">Rincian Barang</div>
-      <div class="tx-product-entry">
+      <form class="tx-product-entry" style="grid-template-columns: minmax(0,1fr) 50px auto !important; margin:0" onsubmit="event.preventDefault(); addTxProductItem(); return false;">
         <input id="txProductInput" class="tx-product-input" type="text" placeholder="Nama barang..." autocomplete="off" oninput="updateTxProductAddButton()" onkeydown="handleTxProductKey(event)" >
-        <button id="txAddProductBtn" type="button" class="btn primary tx-product-add" onclick="addTxProductItem()" disabled>+ Tambah Barang</button>
-      </div>
+        <input id="txProductQty" class="tx-product-input input" type="number" inputmode="numeric" min="1" value="1" placeholder="Qty" style="text-align:center;padding:0 !important" onkeydown="handleTxProductKey(event)">
+        <button id="txAddProductBtn" type="submit" class="btn primary tx-product-add" disabled>+ Tambah</button>
+      </form>
       <div id="txProductSuggest" class="tx-product-suggest"></div>
       <div id="txProductList" class="tx-product-list"></div>
     </div>
