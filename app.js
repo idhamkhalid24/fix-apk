@@ -7041,7 +7041,7 @@ function home() {
       <div class="label">Rincian Barang</div>
       <form class="tx-product-entry" style="grid-template-columns: minmax(0,1fr) 50px auto !important; margin:0" onsubmit="event.preventDefault(); addTxProductItem(); return false;">
         <input id="txProductInput" class="tx-product-input" type="text" placeholder="Nama barang..." autocomplete="off" oninput="updateTxProductAddButton()" onkeydown="handleTxProductKey(event)" >
-        <input id="txProductQty" class="tx-product-input input" type="number" inputmode="numeric" min="1" value="1" placeholder="Qty" style="text-align:center;padding:0 !important" onkeydown="handleTxProductKey(event)">
+        <input id="txProductQty" class="tx-product-input input" type="number" inputmode="numeric" min="1" value="1" placeholder="Qty" style="text-align:center;padding:0 !important" onfocus="hideTxProductSuggest()" onkeydown="handleTxProductKey(event)">
         <button id="txAddProductBtn" type="submit" class="btn primary tx-product-add" disabled>+ Tambah</button>
       </form>
       <div id="txProductSuggest" class="tx-product-suggest"></div>
