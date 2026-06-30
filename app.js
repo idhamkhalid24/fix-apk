@@ -4843,6 +4843,20 @@ const TX_PRODUCT_HISTORY_MAX = 300;
 let txProductSuggestActiveIndex = -1;
 let txProductSuggestItems = [];
 let txProductSuggestTouching = false;
+
+let masterProdukList = [];
+async function loadMasterProduk() {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase.from('produk').select('nama_produk');
+    if (!error && data) {
+      masterProdukList = data.map(r => String(r.nama_produk || "").toUpperCase().trim());
+    }
+  } catch (err) {
+    console.error("Gagal load produk:", err);
+  }
+}
+setTimeout(loadMasterProduk, 1000);
 function getTxProductHistory() {
   try {
     const raw = localStorage.getItem(TX_PRODUCT_HISTORY_KEY);
@@ -4928,8 +4942,8 @@ function showTxProductSuggest(query) {
   if (!input) return hideTxProductSuggest();
   const q = txProductName(query || "");
   if (!q) return hideTxProductSuggest();
-  const history = getTxProductHistory();
-  const matches = history.filter((x) => x.includes(q)).slice(0, 8);
+  const sourceList = masterProdukList.length > 0 ? masterProdukList : getTxProductHistory();
+  const matches = sourceList.filter((x) => x.includes(q)).slice(0, 15);
   if (!matches.length) return hideTxProductSuggest();
   txProductSuggestItems = matches;
   txProductSuggestActiveIndex = -1;
@@ -5078,6 +5092,13 @@ function addTxProductItem() {
     input?.focus?.();
     return;
   }
+  
+  if (masterProdukList.length > 0 && !masterProdukList.includes(value)) {
+    toast("Nama barang tidak terdaftar di sistem!");
+    input?.focus?.();
+    return;
+  }
+
   txProductDraftItems.push(value);
   addTxProductToHistory(value);
   if (input) input.value = "";
