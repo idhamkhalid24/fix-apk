@@ -5187,7 +5187,21 @@ function txItem(t) {
   const canDelete = txDate(t) === todayKey() && !pending;
   const id = esc(t.id);
 
-  const detailBtn = `<button class="btn sm tx-card-btn tx-card-detail" onclick="openTxDetail('${id}')" aria-label="Detail transaksi" title="Detail">${txHistoryIcon("list")}</button>`;
+  const noteLines = String(t.note || "").split("\n").map(x => x.trim()).filter(Boolean);
+  let totalQty = 0;
+  if (noteLines.length > 0 && noteLines[0] !== "Transaksi" && noteLines[0] !== "-") {
+    for (const item of noteLines) {
+      const lower = item.toLowerCase();
+      if (lower.includes(" qty ")) {
+        const q = parseInt(lower.split(" qty ")[1], 10);
+        totalQty += isNaN(q) ? 1 : q;
+      } else {
+        totalQty += 1;
+      }
+    }
+  }
+  const detailIconHtml = totalQty > 0 ? `<span style="font-weight:900;font-size:16px;color:var(--text-main);display:flex;align-items:center;justify-content:center">${totalQty}</span>` : txHistoryIcon("list");
+  const detailBtn = `<button class="btn sm tx-card-btn tx-card-detail" onclick="openTxDetail('${id}')" aria-label="Detail transaksi" title="Detail">${detailIconHtml}</button>`;
   const printBtn = !pending
     ? `<button class="btn sm tx-card-btn tx-card-print" onclick="printReceiptFromTx('${id}')" aria-label="Cetak struk" title="Cetak">${txHistoryIcon("print")}</button>`
     : "";
