@@ -3146,13 +3146,19 @@ function render() {
     renderNow();
   });
 }
-async function getQueryDocs(makePrimary, makeFallback) {
-  try {
-    return await getDocs(makePrimary());
-  } catch (e) {
-    console.warn("primary query fallback", e?.code || e);
-    return await getDocs(makeFallback());
+async function getQueryDocs(...queryMakers) {
+  for (let i = 0; i < queryMakers.length; i++) {
+    try {
+      const snap = await getDocs(queryMakers[i]());
+      if (!snap.empty || i === queryMakers.length - 1) {
+        return snap;
+      }
+      console.warn("query level " + i + " empty, trying fallback");
+    } catch (e) {
+      console.warn("query fallback level " + i, e?.code || e);
+    }
   }
+  return { docs: [], empty: true, forEach: () => {} };
 }
 function clearStaffRealtime() {
   staffRealtimeUnsubs.forEach((fn) => {
@@ -3650,6 +3656,19 @@ async function loadStaffData(opts = {}) {
     m = monthKey(),
     monthStart = monthStartKey(m),
     monthEnd = monthEndKey(m);
+  
+  const cacheKey = "STAFF_DATA_CACHE_" + u;
+  if (!silent && !opts.skipCache) {
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        state.data = { ...state.data, ...parsed };
+        render();
+      }
+    } catch(e) {}
+  }
+
   const cashDrawerLoad = loadCashDrawerStatus(d);
   const drawerWithdrawalLoad = loadDrawerWithdrawals(d);
   if (!silent) showLoad(true);
@@ -3658,15 +3677,9 @@ async function loadStaffData(opts = {}) {
     // absen bulanan, dan closing tetap sama tanpa mengambil riwayat lintas bulan.
     const [
       tx,
-      txLegacy,
       att,
-      attLegacy,
       prevAtt,
       manual,
-      manualMonth,
-      manualTarget,
-      manualTrial,
-      manualLegacy,
       unlockReq,
       bs,
       userSnap,
@@ -3675,142 +3688,33 @@ async function loadStaffData(opts = {}) {
       receiptTextSnap,
     ] = await Promise.all([
       getQueryDocs(
-        () =>
-          query(
-            collection(db, "transactions"),
-            where("user", "==", u),
-            where("dateKey", ">=", monthStart),
-            where("dateKey", "<=", monthEnd),
-            limit(LIMITS.txBonusAll),
-          ),
-        () =>
-          query(
-            collection(db, "transactions"),
-            where("user", "==", u),
-            limit(LIMITS.txBonusAll),
-          ),
-      ),
-      getDocs(
-        query(
-          collection(db, "transactions"),
-          where("user", "==", u),
-          limit(INITIAL_LEGACY_LIMITS.tx),
-        ),
-      ).catch(() => querySnapshot([])),
-      getQueryDocs(
-        () =>
-          query(
-            collection(db, "attendance"),
-            where("user", "==", u),
-            where("dateKey", ">=", monthStart),
-            where("dateKey", "<=", monthEnd),
-            limit(LIMITS.attMonth),
-          ),
-        () =>
-          query(
-            collection(db, "attendance"),
-            where("user", "==", u),
-            limit(LIMITS.attMonth),
-          ),
-      ),
-      getDocs(
-        query(
-          collection(db, "attendance"),
-          where("user", "==", u),
-          limit(INITIAL_LEGACY_LIMITS.att),
-        ),
-      ).catch(() => querySnapshot([])),
-      getDocs(
-        query(
-          collection(db, "attendance"),
-          where("user", "==", u),
-          where("dateKey", "==", prevD),
-          limit(10),
-        ),
-      ).catch(() => querySnapshot([])),
-      getQueryDocs(
-        () =>
-          query(
-            collection(db, "manualBonuses"),
-            where("user", "==", u),
-            where("dateKey", ">=", monthStart),
-            where("dateKey", "<=", monthEnd),
-            limit(LIMITS.manualBonusAll),
-          ),
-        () =>
-          query(
-            collection(db, "manualBonuses"),
-            where("user", "==", u),
-            limit(LIMITS.manualBonusAll),
-          ),
+        () => query(collection(db, "transactions"), where("user", "==", u), where("dateKey", ">=", monthStart), where("dateKey", "<=", monthEnd), limit(LIMITS.txBonusAll)),
+        () => query(collection(db, "transactions"), where("user", "==", u), limit(LIMITS.txBonusAll)),
+        () => query(collection(db, "transactions"), where("user", "==", u), limit(INITIAL_LEGACY_LIMITS.tx))
       ),
       getQueryDocs(
-        () =>
-          query(
-            collection(db, "manualBonuses"),
-            where("user", "==", u),
-            where("monthKey", "==", m),
-            limit(LIMITS.manualBonusAll),
-          ),
-        () =>
-          query(
-            collection(db, "manualBonuses"),
-            where("user", "==", u),
-            limit(LIMITS.manualBonusAll),
-          ),
+        () => query(collection(db, "attendance"), where("user", "==", u), where("dateKey", ">=", monthStart), where("dateKey", "<=", monthEnd), limit(LIMITS.attMonth)),
+        () => query(collection(db, "attendance"), where("user", "==", u), limit(LIMITS.attMonth)),
+        () => query(collection(db, "attendance"), where("user", "==", u), limit(INITIAL_LEGACY_LIMITS.att))
       ),
-      getDocs(
-        query(
-          collection(db, "manualBonuses"),
-          where("user", "==", u),
-          where("id", ">=", `targetbonus_${monthStart}`),
-          where("id", "<=", `targetbonus_${monthEnd}\uf8ff`),
-          limit(INITIAL_LEGACY_LIMITS.manual),
-        ),
-      ).catch(() => querySnapshot([])),
-      getDocs(
-        query(
-          collection(db, "manualBonuses"),
-          where("user", "==", u),
-          where("id", ">=", `trial_targetbonus_${monthStart}`),
-          where("id", "<=", `trial_targetbonus_${monthEnd}\uf8ff`),
-          limit(INITIAL_LEGACY_LIMITS.manual),
-        ),
-      ).catch(() => querySnapshot([])),
-      getDocs(
-        query(
-          collection(db, "manualBonuses"),
-          where("user", "==", u),
-          limit(INITIAL_LEGACY_LIMITS.manual),
-        ),
-      ).catch(() => querySnapshot([])),
+      getDocs(query(collection(db, "attendance"), where("user", "==", u), where("dateKey", "==", prevD), limit(10))).catch(() => ({ docs: [] })),
       getQueryDocs(
-        () =>
-          query(
-            collection(db, STAFF_UNLOCK_TABLE),
-            where("requestKind", "==", "unlock"),
-            where("user", "==", u),
-            limit(LIMITS.unlockRequests),
-          ),
-        () =>
-          query(
-            collection(db, STAFF_UNLOCK_TABLE),
-            where("requestKind", "==", "unlock"),
-            where("user", "==", u),
-            limit(LIMITS.unlockRequests),
-          ),
-      ).catch(() => querySnapshot([])),
+        () => query(collection(db, "manualBonuses"), where("user", "==", u), where("dateKey", ">=", monthStart), where("dateKey", "<=", monthEnd), limit(LIMITS.manualBonusAll)),
+        () => query(collection(db, "manualBonuses"), where("user", "==", u), limit(LIMITS.manualBonusAll)),
+        () => query(collection(db, "manualBonuses"), where("user", "==", u), where("monthKey", "==", m), limit(LIMITS.manualBonusAll)),
+        () => query(collection(db, "manualBonuses"), where("user", "==", u), where("id", ">=", `targetbonus_${monthStart}`), where("id", "<=", `targetbonus_${monthEnd}\uf8ff`), limit(INITIAL_LEGACY_LIMITS.manual)),
+        () => query(collection(db, "manualBonuses"), where("user", "==", u), where("id", ">=", `trial_targetbonus_${monthStart}`), where("id", "<=", `trial_targetbonus_${monthEnd}\uf8ff`), limit(INITIAL_LEGACY_LIMITS.manual)),
+        () => query(collection(db, "manualBonuses"), where("user", "==", u), limit(INITIAL_LEGACY_LIMITS.manual))
+      ),
+      getQueryDocs(
+        () => query(collection(db, STAFF_UNLOCK_TABLE), where("requestKind", "==", "unlock"), where("user", "==", u), limit(LIMITS.unlockRequests)),
+        () => query(collection(db, STAFF_UNLOCK_TABLE), where("requestKind", "==", "unlock"), where("user", "==", u), limit(LIMITS.unlockRequests))
+      ).catch(() => ({ docs: [] })),
       getDocFromServer(doc(db, "closings", "__bonus_settings")),
       getDocFromServer(doc(db, "users", u)),
-      getDocFromServer(doc(db, "closings", HEADER_GUIDE_NOTE_DOC_ID)).catch(
-        () => null,
-      ),
-      getDocFromServer(doc(db, "closings", STAFF_DAILY_NOTE_DOC_ID)).catch(
-        () => null,
-      ),
-      getDocFromServer(doc(db, "closings", RECEIPT_TEXT_DOC_ID)).catch(
-        () => null,
-      ),
+      getDocFromServer(doc(db, "closings", HEADER_GUIDE_NOTE_DOC_ID)).catch(() => null),
+      getDocFromServer(doc(db, "closings", STAFF_DAILY_NOTE_DOC_ID)).catch(() => null),
+      getDocFromServer(doc(db, "closings", RECEIPT_TEXT_DOC_ID)).catch(() => null),
     ]);
 
     let closingRows = [];
@@ -3819,11 +3723,12 @@ async function loadStaffData(opts = {}) {
         () =>
           query(
             collection(db, "closings"),
+            where("user", "==", u),
             where("dateKey", ">=", monthStart),
             where("dateKey", "<=", monthEnd),
             limit(LIMITS.closingsAll),
           ),
-        () => query(collection(db, "closings"), limit(LIMITS.closingsAll)),
+        () => query(collection(db, "closings"), where("user", "==", u), limit(LIMITS.closingsAll)),
       );
       closingRows = allRows.docs.map((x) => ({ id: x.id, ...x.data() }));
     } catch (closeErr) {
@@ -3831,38 +3736,12 @@ async function loadStaffData(opts = {}) {
       closingRows = [];
     }
 
-    const txRows = mergeRowsById(
-      tx.docs.map((x) => ({ id: x.id, ...x.data() })),
-      txLegacy.docs.map((x) => ({ id: x.id, ...x.data() })),
-    ).filter((t) => txMonth(t) === m);
+    const txRows = tx.docs.map((x) => ({ id: x.id, ...x.data() })).filter((t) => txMonth(t) === m);
     const attRows = mergeRowsById(
       att.docs.map((x) => ({ id: x.id, ...x.data() })),
-      attLegacy.docs.map((x) => ({ id: x.id, ...x.data() })),
       prevAtt.docs.map((x) => ({ id: x.id, ...x.data() })),
     ).filter((a) => attDate(a).startsWith(m) || attDate(a) === prevD);
-    const manualRows = mergeRowsById(
-      manual.docs.map((x) => ({ ...(x.data() || {}), id: x.id, docId: x.id })),
-      manualMonth.docs.map((x) => ({
-        ...(x.data() || {}),
-        id: x.id,
-        docId: x.id,
-      })),
-      manualTarget.docs.map((x) => ({
-        ...(x.data() || {}),
-        id: x.id,
-        docId: x.id,
-      })),
-      manualTrial.docs.map((x) => ({
-        ...(x.data() || {}),
-        id: x.id,
-        docId: x.id,
-      })),
-      manualLegacy.docs.map((x) => ({
-        ...(x.data() || {}),
-        id: x.id,
-        docId: x.id,
-      })),
-    ).filter((b) => manualBonusMonth(b) === m);
+    const manualRows = manual.docs.map((x) => ({ ...(x.data() || {}), id: x.id, docId: x.id })).filter((b) => manualBonusMonth(b) === m);
     const unlockRows = unlockReq.docs
       .map((x) => ({ ...(x.data() || {}), id: x.id, docId: x.id }))
       .filter((r) => isFeatureUnlockRequest(r));
@@ -3981,6 +3860,19 @@ async function loadStaffData(opts = {}) {
       };
       localStorage.setItem(SESSION, JSON.stringify(saved));
     }
+    try {
+      localStorage.setItem("STAFF_DATA_CACHE_" + u, JSON.stringify({
+        tx: state.data.tx,
+        att: state.data.att,
+        manual: state.data.manual,
+        closings: state.data.closings,
+        unlockRequests: state.data.unlockRequests,
+        headerGuideNote: state.data.headerGuideNote,
+        staffDailyNote: state.data.staffDailyNote,
+        receiptSettings: state.data.receiptSettings,
+        bonus: state.data.bonus
+      }));
+    } catch (e) {}
     state.lastSyncMs = Date.now();
     state.syncError = "";
     applyPendingToState();
